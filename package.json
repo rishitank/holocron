@@ -1,0 +1,58 @@
+{
+  "name": "darth-proxy",
+  "version": "0.1.0",
+  "description": "I find your lack of free inference disturbing.",
+  "type": "module",
+  "engines": {
+    "node": ">=25.0.0"
+  },
+  "bin": {
+    "darth-proxy": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ci": "vitest run --reporter=junit --outputFile=test-results.xml",
+    "test:coverage": "vitest run --coverage",
+    "benchmark": "node --experimental-strip-types tests/benchmark/runner.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@orama/orama": "^3.0.0",
+    "commander": "^12.0.0",
+    "fastify": "^5.0.0",
+    "simple-git": "^3.0.0",
+    "sqlite-vec": "^0.1.0",
+    "tree-sitter": "^0.22.0",
+    "tree-sitter-wasms": "^0.1.0",
+    "zod": "^3.0.0"
+  },
+  "optionalDependencies": {
+    "@augmentcode/auggie-sdk": "latest",
+    "@xenova/transformers": "^2.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitest/coverage-v8": "^3.0.0",
+    "eslint": "^9.0.0",
+    "memfs": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "darth-proxy",
+  "version": "0.1.0",
+  "description": "I find your lack of codebase context disturbing.",
+  "mcp": {
+    "command": "darth-proxy",
+    "args": ["mcp"],
+    "env": {}
+  },
+  "hooks": "./hooks/hooks.json"
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:base"],
+  "packageRules": [
+    {
+      "matchPackageNames": ["@augmentcode/auggie-sdk"],
+      "schedule": ["before 3am on Monday"],
+      "reviewers": ["rishitank"],
+      "assignees": ["rishitank"]
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchPackagePatterns": [
+        "^@orama",
+        "^@modelcontextprotocol",
+        "^fastify",
+        "^vitest",
+        "^zod",
+        "^simple-git"
+      ],
+      "automerge": true
+    },
+    {
+      "matchPackageNames": ["sqlite-vec", "tree-sitter", "tree-sitter-wasms"],
+      "schedule": ["before 3am on Monday"],
+      "reviewers": ["rishitank"],
+      "assignees": ["rishitank"]
+    }
+  ]
+}

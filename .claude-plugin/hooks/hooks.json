@@ -1,0 +1,5 @@
+{
+  "_note": "UserPromptSubmit hooks in this file do NOT execute due to a Claude Code bug. Run 'darth-proxy plugin install' to register hooks in ~/.claude/settings.json instead.",
+  "UserPromptSubmit": [],
+  "SessionStart": []
+}
