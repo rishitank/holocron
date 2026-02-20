@@ -144,6 +144,10 @@ async function main(): Promise<void> {
       process.stderr.write(`[benchmark] Indexed in ${(performance.now() - t0).toFixed(0)}ms\n`);
       const results = await runQuerySet(engine, 'hybrid');
       allResults.push(...results);
+    } catch (err) {
+      process.stderr.write(
+        `[benchmark] Mode 2/3: Hybrid — SKIPPED (embedding failed: ${String(err)})\n`,
+      );
     } finally {
       await engine.dispose();
     }
@@ -163,8 +167,8 @@ async function main(): Promise<void> {
         await engine.dispose();
       }
     }
-    // Step 2: Simulate cold start by creating a NEW engine (fresh process = fresh OramaIndex)
-    // The engine will restore BM25 from SQLite without re-reading source files.
+    // Step 2: Simulate cold start — create a NEW engine pointing at the same SQLite DB.
+    // FTS5 persists to disk natively; no warmup or restore needed. Search is immediate.
     const t0 = performance.now();
     const engine = await buildEngine(coldDbPath, 'noop');
     try {

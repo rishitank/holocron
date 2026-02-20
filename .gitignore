@@ -10,3 +10,4 @@ test-results.xml
 *.d.ts.map
 .env
 .env.local
+tests/benchmark/benchmark-results.json

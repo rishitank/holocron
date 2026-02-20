@@ -67,6 +67,15 @@ describe('SqliteHybridStore', () => {
     expect(results).toHaveLength(0);
   });
 
+  it('searchBM25() finds chunks by file path tokens (camelCase split)', async () => {
+    // File path "src/context/gitTracker.ts" should yield tokens "git", "tracker"
+    const chunk = makeChunk('gt1', 'export class GitTracker {}', 'src/context/gitTracker.ts');
+    await store.addBatch([{ chunk, vector: new Float32Array(0) }]);
+
+    const results = await store.searchBM25('git', 5);
+    expect(results.map((r) => r.id)).toContain('gt1');
+  });
+
   // ── addBatch + searchVector ───────────────────────────────────────────────
 
   it('addBatch() stores vectors and they are searchable', async () => {

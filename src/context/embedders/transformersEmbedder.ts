@@ -26,7 +26,7 @@ export class TransformersEmbedder implements EmbeddingProvider {
 
   async isAvailable(): Promise<boolean> {
     try {
-      // @ts-expect-error — optional peer dependency; may not be installed
+      // @ts-ignore — optional peer dependency; may not be installed
       await import('@huggingface/transformers');
       this.available = true;
       return true;
@@ -38,7 +38,7 @@ export class TransformersEmbedder implements EmbeddingProvider {
   private async getPipeline(): Promise<((text: string) => Promise<{ data: Float32Array }>) | null> {
     if (this.pipeline) return this.pipeline;
     try {
-      // @ts-expect-error — optional peer dependency; may not be installed
+      // @ts-ignore — optional peer dependency; may not be installed
       const { pipeline } = await import('@huggingface/transformers') as {
         pipeline: (task: string, model: string) => Promise<(text: string) => Promise<{ data: Float32Array }>>;
       };

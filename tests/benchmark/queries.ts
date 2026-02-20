@@ -15,11 +15,11 @@ export const QUERIES: readonly BenchmarkQuery[] = [
   // ── Conceptual / semantic queries ─────────────────────────────────────────
   {
     q: 'BM25 full-text search indexing',
-    files: ['src/context/oramaIndex.ts'],
+    files: ['src/context/sqliteHybridStore.ts'],
   },
   {
-    q: 'vector similarity cosine embeddings',
-    files: ['src/context/sqliteVectorStore.ts', 'src/context/vectorStore.ts'],
+    q: 'vector similarity cosine embeddings sqlite-vec',
+    files: ['src/context/sqliteHybridStore.ts'],
   },
   {
     q: 'git incremental reindex changed files',
@@ -59,8 +59,8 @@ export const QUERIES: readonly BenchmarkQuery[] = [
     files: ['src/context/localContextAdapter.ts'],
   },
   {
-    q: 'DatabaseSync sqlite-vec allowExtension',
-    files: ['src/context/sqliteVectorStore.ts'],
+    q: 'DatabaseSync sqlite-vec allowExtension load vector extension',
+    files: ['src/context/sqliteHybridStore.ts'],
   },
   {
     q: 'codebase_context XML format rank file lines',

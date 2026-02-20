@@ -1,7 +1,21 @@
 import type { HybridStore, BM25Hit, VectorHit, BatchEntry } from './hybridStore.js';
 import { ContextError } from '../errors/context.js';
 import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, basename } from 'node:path';
+
+/**
+ * Extract searchable tokens from a file path.
+ * "src/context/gitTracker.ts" → "git tracker"
+ * Splits camelCase, PascalCase, hyphens, and underscores.
+ */
+function filePathTokens(filePath: string): string {
+  const name = basename(filePath).replace(/\.[^.]+$/, '');
+  return name
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/[-_]/g, ' ')
+    .toLowerCase()
+    .trim();
+}
 
 // Dynamically imported to avoid top-level issues with experimental node:sqlite API
 type DatabaseSync = import('node:sqlite').DatabaseSync;
@@ -87,7 +101,7 @@ export class SqliteHybridStore implements HybridStore {
         const rowid = BigInt(row.rowid);
 
         // Insert into FTS5 (rowid must match chunk_meta.rowid)
-        this.stmtInsertFts.run(rowid, chunk.content, chunk.symbolName ?? '');
+        this.stmtInsertFts.run(rowid, chunk.content, chunk.symbolName ?? '', filePathTokens(chunk.filePath));
 
         // Insert into vec0 (only if embedder produced a non-empty vector)
         if (vector.length > 0) {
@@ -275,11 +289,13 @@ export class SqliteHybridStore implements HybridStore {
       )
     `);
 
-    // FTS5 BM25 search — content + symbol_name, porter stemming
+    // FTS5 BM25 search — content + symbol_name + file_tokens, porter stemming
+    // file_tokens: camelCase-split basename ("gitTracker.ts" → "git tracker")
     this.db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
         content,
         symbol_name,
+        file_tokens,
         tokenize='porter unicode61'
       )
     `);
@@ -298,7 +314,7 @@ export class SqliteHybridStore implements HybridStore {
        VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING rowid`,
     );
     this.stmtInsertFts = this.db.prepare(
-      'INSERT INTO chunks_fts(rowid, content, symbol_name) VALUES (?, ?, ?)',
+      'INSERT INTO chunks_fts(rowid, content, symbol_name, file_tokens) VALUES (?, ?, ?, ?)',
     );
     this.stmtDeleteFtsByRowid = this.db.prepare('DELETE FROM chunks_fts WHERE rowid = ?');
     this.stmtDeleteMetaById = this.db.prepare('DELETE FROM chunk_meta WHERE id = ?');
@@ -308,14 +324,15 @@ export class SqliteHybridStore implements HybridStore {
     );
     this.stmtCount = this.db.prepare('SELECT COUNT(*) as n FROM chunk_meta');
 
-    // content weight=10, symbol_name weight=1 — code content matters more than symbol names
+    // content weight=10, symbol_name weight=1, file_tokens weight=5
+    // file_tokens boosts matches on the file basename ("git" matches gitTracker.ts)
     this.stmtSearchFts = this.db.prepare(`
       SELECT m.id, m.content, m.file_path, m.start_line, m.end_line, m.language, m.symbol_name,
-             -bm25(chunks_fts, 10.0, 1.0) as score
+             -bm25(chunks_fts, 10.0, 1.0, 5.0) as score
       FROM chunks_fts
       JOIN chunk_meta m ON chunks_fts.rowid = m.rowid
       WHERE chunks_fts MATCH ?
-      ORDER BY bm25(chunks_fts, 10.0, 1.0)
+      ORDER BY bm25(chunks_fts, 10.0, 1.0, 5.0)
       LIMIT ?
     `);
 

@@ -27,7 +27,7 @@
     "test:watch": "vitest",
     "test:ci": "vitest run --reporter=junit --outputFile=test-results.xml",
     "test:coverage": "vitest run --coverage",
-    "benchmark": "node --experimental-strip-types tests/benchmark/runner.ts"
+    "benchmark": "tsx tests/benchmark/runner.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -48,6 +48,7 @@
     "eslint": "^9.0.0",
     "memfs": "^4.0.0",
     "tsup": "^8.0.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   }
