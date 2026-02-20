@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { validateConfig, ConfigValidationError } from '../../../src/config/validator.js';
 import { DEFAULT_CONFIG } from '../../../src/config/defaults.js';
 import type { AppConfig } from '../../../src/types/config.types.js';
@@ -8,10 +8,6 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
 }
 
 describe('validateConfig', () => {
-  afterEach(() => {
-    delete process.env['AUGMENT_API_TOKEN'];
-  });
-
   it('accepts valid Ollama config without any keys', () => {
     expect(() => validateConfig(makeConfig())).not.toThrow();
   });
@@ -42,23 +38,6 @@ describe('validateConfig', () => {
   it('accepts valid openai-compatible config with baseUrl', () => {
     const config = makeConfig({
       backend: { type: 'openai-compatible', baseUrl: 'http://localhost:8000', model: 'llama3' },
-    });
-    expect(() => validateConfig(config)).not.toThrow();
-  });
-
-  it('throws when augment mode is requested without AUGMENT_API_TOKEN', () => {
-    delete process.env['AUGMENT_API_TOKEN'];
-    const config = makeConfig({
-      context: { ...DEFAULT_CONFIG.context, mode: 'augment' },
-    });
-    expect(() => validateConfig(config)).toThrow(ConfigValidationError);
-    expect(() => validateConfig(config)).toThrow('AUGMENT_API_TOKEN');
-  });
-
-  it('accepts augment mode when AUGMENT_API_TOKEN is set', () => {
-    process.env['AUGMENT_API_TOKEN'] = 'test-token';
-    const config = makeConfig({
-      context: { ...DEFAULT_CONFIG.context, mode: 'augment' },
     });
     expect(() => validateConfig(config)).not.toThrow();
   });

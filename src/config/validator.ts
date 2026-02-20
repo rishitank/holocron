@@ -33,12 +33,6 @@ function validateBackend(backend: BackendConfig): void {
 export function validateConfig(config: AppConfig): void {
   validateBackend(config.backend);
 
-  if (config.context.mode === 'augment' && !process.env['AUGMENT_API_TOKEN']) {
-    throw new ConfigValidationError(
-      'Context mode "augment" requires AUGMENT_API_TOKEN env var.',
-    );
-  }
-
   if (config.api.port < 1 || config.api.port > 65535) {
     throw new ConfigValidationError(
       `API port must be between 1 and 65535, got ${config.api.port}.`,

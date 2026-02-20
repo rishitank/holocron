@@ -12,7 +12,6 @@ describe('loadConfig', () => {
     delete process.env['ANTHROPIC_API_KEY'];
     delete process.env['ANTHROPIC_BASE_URL'];
     delete process.env['OLLAMA_BASE_URL'];
-    delete process.env['AUGMENT_API_TOKEN'];
   });
 
   afterEach(() => {
@@ -32,8 +31,7 @@ describe('loadConfig', () => {
     expect(config.logLevel).toBe('info');
   });
 
-  it('does not require AUGMENT_* keys', () => {
-    // Should not throw with no Augment env vars
+  it('loads without any optional env vars', () => {
     expect(() => loadConfig('/tmp/nonexistent-dir')).not.toThrow();
   });
 

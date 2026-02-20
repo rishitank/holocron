@@ -3,10 +3,8 @@ import type { SearchResult, IndexResult, IndexOptions, SearchOptions } from '../
 /**
  * ContextEngine — the central abstraction for codebase intelligence.
  *
- * Open/Closed Principle: new backends (Augment, remote, etc.) implement this
+ * Open/Closed Principle: new backends (remote, cloud, etc.) implement this
  * interface without modifying any callers.
- *
- * Liskov Substitution: AugmentContextAdapter is a drop-in for LocalContextAdapter.
  */
 export interface ContextEngine {
   /**

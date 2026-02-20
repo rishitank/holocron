@@ -20,23 +20,10 @@ function resolvePersistPath(config: ContextConfig): string {
 }
 
 /**
- * Factory that wires up the appropriate ContextEngine based on config.
- *
- * Priority:
- *  1. If mode='augment' AND AUGMENT_API_TOKEN is set → AugmentContextAdapter (optional dep)
- *  2. Default: LocalContextAdapter (fully offline)
+ * Factory that wires up the LocalContextAdapter (offline, zero-dependency inference).
+ * BM25 + vector hybrid search, tree-sitter chunking, sqlite-vec storage.
  */
 export async function createContextEngine(config: ContextConfig): Promise<ContextEngine> {
-  // Optional: Augment context adapter when credentials are present
-  if (config.mode === 'augment' && process.env['AUGMENT_API_TOKEN']) {
-    try {
-      const { AugmentContextAdapter } = await import('./augmentContextAdapter.js');
-      return new AugmentContextAdapter();
-    } catch {
-      // Optional dep not installed — fall through to local
-    }
-  }
-
   // Embedding provider
   let embedder: EmbeddingProvider;
   if (config.embedder === 'ollama') {

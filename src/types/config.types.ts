@@ -27,7 +27,7 @@ export interface OpenAICompatibleConfig {
 export type BackendConfig = OllamaConfig | AnthropicConfig | OpenAICompatibleConfig;
 
 export interface ContextConfig {
-  mode: 'local' | 'augment';
+  mode: 'local';
   embedder: 'noop' | 'ollama' | 'transformers';
   ollamaBaseUrl?: string;
   ollamaEmbedModel?: string;
