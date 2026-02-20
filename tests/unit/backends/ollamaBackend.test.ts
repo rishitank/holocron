@@ -151,6 +151,24 @@ describe('OllamaBackend', () => {
         { content: '', done: true },
       ]);
     });
+
+    it('stream() skips malformed SSE JSON and continues yielding valid chunks', async () => {
+      fetchMock.mockResolvedValueOnce(
+        mockStreamResponse([
+          'data: {"choices":[{"delta":{"content":"hello"},"finish_reason":null}],"model":"llama3"}',
+          'data: NOT_VALID_JSON',
+          'data: {"choices":[{"delta":{"content":" world"},"finish_reason":null}],"model":"llama3"}',
+          'data: [DONE]',
+        ]),
+      );
+
+      const chunks: string[] = [];
+      for await (const chunk of backend.stream(makeRequest())) {
+        chunks.push(chunk.content);
+      }
+
+      expect(chunks.filter(Boolean)).toEqual(['hello', ' world']);
+    });
   });
 
   describe('isAvailable()', () => {

@@ -34,6 +34,38 @@ function mockFetchResponse(body: unknown, ok = true, status = 200): Response {
   } as Response;
 }
 
+function makeSSEStream(lines: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const text = lines.join('\n') + '\n';
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(text));
+      controller.close();
+    },
+  });
+}
+
+function mockStreamResponse(lines: string[]): Response {
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    body: makeSSEStream(lines),
+    headers: new Headers(),
+    redirected: false,
+    type: 'basic',
+    url: '',
+    clone: () => ({}) as Response,
+    bodyUsed: false,
+    arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+    blob: () => Promise.resolve(new Blob()),
+    formData: () => Promise.resolve(new FormData()),
+    json: () => Promise.resolve({}),
+    text: () => Promise.resolve(''),
+    bytes: () => Promise.resolve(new Uint8Array()),
+  } as Response;
+}
+
 describe('AnthropicBackend', () => {
   let backend: AnthropicBackend;
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -128,6 +160,26 @@ describe('AnthropicBackend', () => {
         'http://localhost:8080/v1/messages',
         expect.anything(),
       );
+    });
+  });
+
+  describe('stream()', () => {
+    it('stream() skips malformed SSE JSON and continues yielding valid chunks', async () => {
+      fetchMock.mockResolvedValueOnce(
+        mockStreamResponse([
+          'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hello"}}',
+          'data: GARBAGE_DATA',
+          'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":" world"}}',
+          'data: {"type":"message_stop"}',
+        ]),
+      );
+
+      const chunks: string[] = [];
+      for await (const chunk of backend.stream(makeRequest())) {
+        chunks.push(chunk.content);
+      }
+
+      expect(chunks.filter(Boolean)).toEqual(['hello', ' world']);
     });
   });
 });

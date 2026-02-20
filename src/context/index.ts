@@ -1,10 +1,8 @@
 import type { ContextEngine } from './contextEngine.js';
 import type { ContextConfig } from '../types/config.types.js';
 import { FileIndexer } from './fileIndexer.js';
-import { getChunker } from './treeChunker.js';
-import { OramaIndex } from './oramaIndex.js';
-import { SqliteVectorStore } from './sqliteVectorStore.js';
-import { MemoryVectorStore } from './memoryVectorStore.js';
+import { TreeChunker, TextChunker } from './treeChunker.js';
+import { SqliteHybridStore } from './sqliteHybridStore.js';
 import { LocalContextAdapter } from './localContextAdapter.js';
 import type { EmbeddingProvider } from './embedders/embeddingProvider.js';
 import { NoopEmbeddingProvider } from './embedders/embeddingProvider.js';
@@ -12,7 +10,7 @@ import { OllamaEmbedder } from './embedders/ollamaEmbedder.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-export { ContextEngine } from './contextEngine.js';
+export type { ContextEngine } from './contextEngine.js';
 export { LocalContextAdapter } from './localContextAdapter.js';
 
 function resolvePersistPath(config: ContextConfig): string {
@@ -21,7 +19,12 @@ function resolvePersistPath(config: ContextConfig): string {
 
 /**
  * Factory that wires up the LocalContextAdapter (offline, zero-dependency inference).
- * BM25 + vector hybrid search, tree-sitter chunking, sqlite-vec storage.
+ *
+ * Uses SqliteHybridStore — a single SQLite DB with:
+ *  - FTS5 virtual table for BM25 full-text search
+ *  - sqlite-vec virtual table for ANN vector search
+ *  - Single transactional batch inserts for 100× indexing throughput
+ *  - No cold-start loadAllChunks() needed (FTS5 persists to disk automatically)
  */
 export async function createContextEngine(config: ContextConfig): Promise<ContextEngine> {
   // Embedding provider
@@ -29,7 +32,7 @@ export async function createContextEngine(config: ContextConfig): Promise<Contex
   if (config.embedder === 'ollama') {
     embedder = new OllamaEmbedder(
       config.ollamaBaseUrl ?? 'http://localhost:11434',
-      config.ollamaEmbedModel ?? 'qwen3-embedding',
+      config.ollamaEmbedModel ?? 'nomic-embed-code',
     );
   } else if (config.embedder === 'transformers') {
     const { TransformersEmbedder } = await import('./embedders/transformersEmbedder.js');
@@ -38,14 +41,13 @@ export async function createContextEngine(config: ContextConfig): Promise<Contex
     embedder = new NoopEmbeddingProvider();
   }
 
-  // Chunker
-  const chunker = getChunker(config.chunker === 'text' ? 'unsupported' : 'typescript');
+  // Chunker: TreeChunker handles all supported languages (falls back to TextChunker
+  // for unsupported ones). TextChunker is used when explicitly configured.
+  const chunker = config.chunker === 'text' ? new TextChunker() : new TreeChunker();
 
-  // Vector store
-  const vectorStore =
-    config.vectorStore === 'memory'
-      ? new MemoryVectorStore()
-      : new SqliteVectorStore(resolvePersistPath(config));
+  // Hybrid store: single SQLite DB with FTS5 + sqlite-vec
+  const store = new SqliteHybridStore(resolvePersistPath(config));
+  await store.ensureReady();
 
-  return new LocalContextAdapter(new FileIndexer(), chunker, new OramaIndex(), vectorStore, embedder);
+  return new LocalContextAdapter(new FileIndexer(), chunker, store, embedder);
 }

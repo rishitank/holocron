@@ -148,11 +148,16 @@ export class AnthropicBackend implements InferenceBackend {
             return;
           }
 
-          const parsed = JSON.parse(payload) as {
+          let parsed: {
             type: string;
             delta?: { type?: string; text?: string };
             message?: { model?: string };
           };
+          try {
+            parsed = JSON.parse(payload) as typeof parsed;
+          } catch {
+            continue; // skip malformed SSE lines
+          }
 
           if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
             yield {

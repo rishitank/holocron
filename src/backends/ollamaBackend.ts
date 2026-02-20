@@ -104,10 +104,15 @@ export class OllamaBackend implements InferenceBackend {
             return;
           }
 
-          const parsed = JSON.parse(payload) as {
+          let parsed: {
             choices: Array<{ delta: { content?: string }; finish_reason?: string | null }>;
             model?: string;
           };
+          try {
+            parsed = JSON.parse(payload) as typeof parsed;
+          } catch {
+            continue; // skip malformed SSE lines
+          }
 
           const delta = parsed.choices[0];
           yield {

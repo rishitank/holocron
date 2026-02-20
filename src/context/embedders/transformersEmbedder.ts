@@ -26,7 +26,8 @@ export class TransformersEmbedder implements EmbeddingProvider {
 
   async isAvailable(): Promise<boolean> {
     try {
-      await import('@xenova/transformers');
+      // @ts-expect-error — optional peer dependency; may not be installed
+      await import('@huggingface/transformers');
       this.available = true;
       return true;
     } catch {
@@ -37,7 +38,8 @@ export class TransformersEmbedder implements EmbeddingProvider {
   private async getPipeline(): Promise<((text: string) => Promise<{ data: Float32Array }>) | null> {
     if (this.pipeline) return this.pipeline;
     try {
-      const { pipeline } = await import('@xenova/transformers') as {
+      // @ts-expect-error — optional peer dependency; may not be installed
+      const { pipeline } = await import('@huggingface/transformers') as {
         pipeline: (task: string, model: string) => Promise<(text: string) => Promise<{ data: Float32Array }>>;
       };
       this.pipeline = await pipeline('feature-extraction', 'Xenova/nomic-embed-text-v1');
