@@ -7,5 +7,6 @@
     "args": ["mcp"],
     "env": {}
   },
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./hooks/hooks.json",
+  "commands": "./skills"
 }

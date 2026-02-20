@@ -1,7 +1,8 @@
 import type { Command } from 'commander';
 import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 interface HookEntry {
   type: string;
@@ -65,12 +66,13 @@ Present the enhanced prompt in a code block so the user can review it, then ask 
 };
 
 // Bash script invoked by Claude Code's external editor (ctrl+p → chat:externalEditor).
-// Claude Code calls it with the path to a temp file containing the current chat input.
-// The script runs darth-proxy enhance on the content and writes the result back.
+// Claude Code calls the script with the path to a temp file holding the current input.
+// While this script runs, Claude Code LOCKS the input box (it is read-only).
+// Visual feedback (spinner, "enhancing" label) is printed to the terminal via tput.
+// When the script exits, Claude Code reads the enriched content back into the input.
 const ENHANCE_EDITOR_SCRIPT = `#!/bin/bash
 # darth-proxy prompt enhancer — invoked as $VISUAL by Claude Code (ctrl+p)
-# Usage: called by Claude Code with a temp file path as the sole argument.
-set -e
+# Claude Code calls this with a temp file path; the input box is locked until we exit.
 
 TMPFILE="$1"
 if [ -z "$TMPFILE" ] || [ ! -f "$TMPFILE" ]; then
@@ -82,9 +84,23 @@ if [ -z "$(echo "$PROMPT" | tr -d '[:space:]')" ]; then
   exit 0
 fi
 
+# ── Visual feedback: print an "enhancing" indicator to the terminal ────────────
+# tput sgr0 resets colours; tput setaf 3 = yellow; tput setaf 2 = green.
+# These codes are ignored gracefully if the terminal does not support them.
+RESET=$(tput sgr0 2>/dev/null || true)
+YELLOW=$(tput setaf 3 2>/dev/null || true)
+GREEN=$(tput setaf 2 2>/dev/null || true)
+BOLD=$(tput bold 2>/dev/null || true)
+
+printf '%s' "$YELLOW$BOLD⚡ darth-proxy: enhancing prompt with codebase context...$RESET " >&2
+
 ENHANCED=$(darth-proxy enhance "$PROMPT" 2>/dev/null)
+
 if [ -n "$ENHANCED" ]; then
+  printf '%s\\n' "$GREEN✓ done$RESET" >&2
   printf '%s' "$ENHANCED" > "$TMPFILE"
+else
+  printf '%s\\n' "(no context found — prompt unchanged)" >&2
 fi
 `;
 
@@ -173,7 +189,7 @@ export function registerPluginInstallCommand(program: Command): void {
           '  ✓ UserPromptSubmit hook   — context auto-injected on every prompt',
           '  ✓ MCP server              — search_codebase / ask_codebase / enhance_prompt tools',
           '  ✓ Slash commands          — /darth-proxy:search  /darth-proxy:ask  /darth-proxy:enhance',
-          '  ✓ ctrl+p keybinding       — opens the prompt enhancer (chat:externalEditor)',
+          '  ✓ ctrl+p keybinding       — triggers chat:externalEditor (input locked while enhancing)',
           `  ✓ Enhance script          — ${editorScriptPath}`,
           '',
           'One step required to activate ctrl+p prompt enhancement:',
@@ -181,7 +197,15 @@ export function registerPluginInstallCommand(program: Command): void {
           `  export VISUAL="${editorScriptPath}"`,
           '',
           'Add the line above to your ~/.zshrc (or ~/.bashrc), then restart Claude Code.',
-          'Press ctrl+p with text in the input box to transform it with codebase context.',
+          '',
+          'ctrl+p behaviour:',
+          '  1. Input box locks (read-only) while darth-proxy searches the codebase',
+          '  2. Terminal shows: ⚡ enhancing... → ✓ done',
+          '  3. Input box is restored with the context-enriched prompt — review and send',
+          '',
+          'Alternatively, install via Claude Code plugin system (no manual settings editing):',
+          `  /plugin marketplace add ${resolve(fileURLToPath(import.meta.url), '../../../../.claude-plugin')}`,
+          '  Then open the Plugin dialog and install darth-proxy from the marketplace.',
           '',
         ].join('\n'),
       );
