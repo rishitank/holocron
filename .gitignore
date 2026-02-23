@@ -11,3 +11,4 @@ test-results.xml
 .env
 .env.local
 tests/benchmark/benchmark-results.json
+.npmrc
