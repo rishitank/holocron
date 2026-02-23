@@ -1,6 +1,6 @@
 {
   "name": "@rishitank/holocron",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "description": "Local codebase intelligence for Claude Code. Your personal holocron.",
   "type": "module",
   "engines": {
