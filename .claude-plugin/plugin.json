@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "description": "I find your lack of codebase context disturbing.",
   "mcp": {
-    "command": "holocron",
-    "args": ["mcp"],
+    "command": "npx",
+    "args": ["-y", "@rishitank/holocron@latest", "mcp"],
     "env": {}
   },
   "hooks": "./hooks/hooks.json",

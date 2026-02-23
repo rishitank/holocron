@@ -1,5 +1,5 @@
 {
-  "name": "holocron",
+  "name": "@rishitank/holocron",
   "version": "0.1.0",
   "description": "Local codebase intelligence for Claude Code. Your personal holocron.",
   "type": "module",
@@ -16,8 +16,12 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    ".claude-plugin"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

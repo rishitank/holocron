@@ -1,0 +1,12 @@
+{
+  "name": "holocron",
+  "description": "Holocron — codebase context engine for Claude Code",
+  "plugins": [
+    {
+      "name": "holocron",
+      "description": "Automatically injects relevant codebase context (BM25 + vector hybrid search over SQLite) into every Claude Code prompt. Runs 100% locally — no cloud, no API key, no latency overhead.",
+      "version": "0.1.0",
+      "source": "https://github.com/rishitank/holocron"
+    }
+  ]
+}

@@ -5,7 +5,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "holocron hook user-prompt-submit"
+          "command": "npx -y @rishitank/holocron@latest hook user-prompt-submit"
         }
       ]
     }
@@ -16,7 +16,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "holocron hook session-start"
+          "command": "npx -y @rishitank/holocron@latest hook session-start"
         }
       ]
     }
