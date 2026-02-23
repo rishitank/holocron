@@ -78,7 +78,7 @@ export function buildReport(results: QueryResult[], corpusDir: string): Benchmar
 export function printMarkdownTable(report: BenchmarkReport): void {
   const { summary, tokenEfficiency } = report;
 
-  process.stdout.write('\n## darth-proxy Benchmark Results\n\n');
+  process.stdout.write('\n## holocron Benchmark Results\n\n');
   process.stdout.write(`Corpus: \`${report.corpusDir}\`  \n`);
   process.stdout.write(`Timestamp: ${report.timestamp}\n\n`);
 

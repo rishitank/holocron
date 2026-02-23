@@ -10,7 +10,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     ollamaEmbedModel: 'qwen3-embedding',
     chunker: 'ast',
     vectorStore: 'sqlite',
-    persistPath: join(homedir(), '.darth-proxy', 'index.db'),
+    persistPath: join(homedir(), '.holocron', 'index.db'),
     lazyIndexing: true,
     hierarchical: false,
     watchMode: false,
@@ -32,8 +32,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     maxCharsPerChunk: 2000,
   },
   plugin: {
-    hookScript: 'darth-proxy hook user-prompt-submit',
-    sessionStartScript: 'darth-proxy hook session-start',
+    hookScript: 'holocron hook user-prompt-submit',
+    sessionStartScript: 'holocron hook session-start',
   },
   logLevel: 'info',
 };

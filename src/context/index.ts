@@ -14,7 +14,7 @@ export type { ContextEngine } from './contextEngine.js';
 export { LocalContextAdapter } from './localContextAdapter.js';
 
 function resolvePersistPath(config: ContextConfig): string {
-  return config.persistPath ?? join(homedir(), '.darth-proxy', 'index.db');
+  return config.persistPath ?? join(homedir(), '.holocron', 'index.db');
 }
 
 /**

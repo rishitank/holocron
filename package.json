@@ -1,13 +1,13 @@
 {
-  "name": "darth-proxy",
+  "name": "holocron",
   "version": "0.1.0",
-  "description": "I find your lack of free inference disturbing.",
+  "description": "Local codebase intelligence for Claude Code. Your personal holocron.",
   "type": "module",
   "engines": {
     "node": ">=25.0.0"
   },
   "bin": {
-    "darth-proxy": "./dist/cli/index.js"
+    "holocron": "./dist/cli/index.js"
   },
   "exports": {
     ".": {

@@ -23,7 +23,7 @@ export class GitTracker {
   private readonly shaFile: string;
 
   constructor(private readonly persistPath: string) {
-    this.shaFile = join(persistPath, '.darth-last-sha');
+    this.shaFile = join(persistPath, '.holocron-last-sha');
   }
 
   /** True if the directory is inside a git repository. */

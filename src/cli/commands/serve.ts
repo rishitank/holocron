@@ -19,6 +19,6 @@ export function registerServeCommand(program: Command): void {
       const port = parseInt(opts.port, 10);
       const host = opts.host;
       await app.listen({ port, host });
-      process.stderr.write(`[darth-proxy] REST API listening on http://${host}:${port}\n`);
+      process.stderr.write(`[holocron] REST API listening on http://${host}:${port}\n`);
     });
 }

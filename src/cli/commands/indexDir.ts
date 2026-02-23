@@ -12,10 +12,10 @@ export function registerIndexDirCommand(program: Command): void {
       const engine = await createContextEngine(config.context);
       try {
         if (options.reset) {
-          process.stderr.write('[darth-proxy] Clearing existing index...\n');
+          process.stderr.write('[holocron] Clearing existing index...\n');
           await engine.clearIndex();
         }
-        process.stderr.write(`[darth-proxy] Indexing ${directory}...\n`);
+        process.stderr.write(`[holocron] Indexing ${directory}...\n`);
         const result = await engine.indexDirectory(directory);
         process.stdout.write(
           `Indexed ${result.indexedFiles} files (${result.chunks} chunks) from ${directory}\n`,

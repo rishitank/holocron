@@ -1,9 +1,9 @@
 {
-  "name": "darth-proxy",
+  "name": "holocron",
   "version": "0.1.0",
   "description": "I find your lack of codebase context disturbing.",
   "mcp": {
-    "command": "darth-proxy",
+    "command": "holocron",
     "args": ["mcp"],
     "env": {}
   },

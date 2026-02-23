@@ -1,7 +1,7 @@
 /**
- * Ground-truth query set for darth-proxy retrieval benchmarking.
+ * Ground-truth query set for holocron retrieval benchmarking.
  *
- * The corpus is the darth-proxy codebase itself (~82 TypeScript files).
+ * The corpus is the holocron codebase itself (~82 TypeScript files).
  * Each entry maps a natural-language query to the file(s) expected to rank
  * in the top results. Recall@K and MRR are computed against these lists.
  */

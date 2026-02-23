@@ -36,7 +36,7 @@ export function createMcpServer(deps: McpServerDeps): McpServer {
   };
 
   const server = new McpServer({
-    name: 'darth-proxy',
+    name: 'holocron',
     version: '0.1.0',
   });
 
@@ -44,12 +44,12 @@ export function createMcpServer(deps: McpServerDeps): McpServer {
 
   server.resource(
     'index-status',
-    'darth-proxy://index/status',
+    'holocron://index/status',
     { description: 'Current index health: indexed file count, last git SHA, last indexed timestamp.' },
     async () => ({
       contents: [
         {
-          uri: 'darth-proxy://index/status',
+          uri: 'holocron://index/status',
           mimeType: 'application/json',
           text: JSON.stringify(status),
         },
@@ -222,7 +222,7 @@ export function createMcpServer(deps: McpServerDeps): McpServer {
 export async function startMcpServer(deps: McpServerDeps): Promise<void> {
   const server = createMcpServer(deps);
   const transport = new StdioServerTransport();
-  process.stderr.write('[darth-proxy] MCP server starting on stdio\n');
+  process.stderr.write('[holocron] MCP server starting on stdio\n');
   await server.connect(transport);
-  process.stderr.write('[darth-proxy] MCP server connected. The Force flows.\n');
+  process.stderr.write('[holocron] MCP server connected. The Force flows.\n');
 }

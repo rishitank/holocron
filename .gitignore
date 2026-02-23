@@ -4,7 +4,7 @@ coverage/
 *.db
 *.db-shm
 *.db-wal
-.darth-proxy/
+.holocron/
 test-results.xml
 *.js.map
 *.d.ts.map

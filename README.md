@@ -1,8 +1,8 @@
-# Darth Proxy
+# Holocron
 
-> "I find your lack of codebase context disturbing."
+> "Ancient knowledge crystals storing the wisdom of Force masters — accessed by agents to gain understanding."
 
-A fully self-contained TypeScript tool that provides better-than-cloud codebase intelligence and free LLM inference routing — exposed via MCP server, CLI, and REST API. Zero Augment account required. Zero background processes. Fully offline-capable.
+A fully self-contained TypeScript tool that provides local codebase intelligence for Claude Code — exposed via MCP server, CLI, and REST API. Zero cloud account required. Zero background processes. Fully offline-capable.
 
 ---
 
@@ -10,14 +10,13 @@ A fully self-contained TypeScript tool that provides better-than-cloud codebase 
 
 - **Automatic context injection** — Intercepts every Claude Code prompt via `UserPromptSubmit` hook; silently injects relevant code snippets as `additionalContext` before the model sees the prompt. You never type a command.
 - **Lazy git-aware indexing** — Checks the git HEAD SHA on every search. If nothing changed, returns in <1ms. If commits landed, only reindexes the changed files via `git diff-index`.
-- **Hybrid BM25 + vector search** — Orama BM25 full-text search fused with sqlite-vec cosine similarity via Reciprocal Rank Fusion (RRF).
+- **Hybrid BM25 + vector search** — FTS5 BM25 full-text search fused with sqlite-vec cosine similarity via Reciprocal Rank Fusion (RRF). Single SQLite file, no external processes.
 - **AST-aware chunking** — Chunks code at function/class/method boundaries (not arbitrary line counts), improving retrieval precision by 20–35% vs sliding-window approaches.
 - **SOTA embeddings** — Qwen3-Embedding (MTEB code benchmark 80.68, 2026 SOTA) via Ollama. Falls back to BM25-only when Ollama is unavailable.
 - **Multiple inference backends** — Ollama, Anthropic (API key or Claude Code shim), any OpenAI-compatible endpoint (LiteLLM, vLLM, CCProxy).
 - **MCP server** — Tools, Resources, and Prompts per the MCP 2025-11-25 spec. Integrates directly with Claude Code.
 - **REST API** — Fastify server for programmatic access.
 - **CLI** — Full command-line interface for manual use.
-- **Optional Augment Cloud** — When `AUGMENT_API_TOKEN` is set and `@augmentcode/auggie-sdk` is installed, swaps to Augment's cloud engine via the same `ContextEngine` interface.
 
 ---
 
@@ -25,19 +24,19 @@ A fully self-contained TypeScript tool that provides better-than-cloud codebase 
 
 ```bash
 # 1. Install
-npm install -g darth-proxy
+npm install -g holocron
 
 # 2. Pull SOTA embeddings (recommended for semantic search)
 ollama pull qwen3-embedding
 
 # 3. Register Claude Code hooks + MCP server (one-time)
-darth-proxy plugin install
+holocron plugin install
 
 # 4. Restart Claude Code
 # Done. Every prompt now gets codebase context injected automatically.
 ```
 
-No Augment account. No API keys. No manual indexing commands. The Force flows automatically.
+No API keys. No manual indexing commands. The Force flows automatically.
 
 ---
 
@@ -53,8 +52,7 @@ No Augment account. No API keys. No manual indexing commands. The Force flows au
 **Optional**:
 - Any Ollama chat model (`ollama pull codellama`) for `--ask` inference
 - `ANTHROPIC_API_KEY` for Anthropic backend
-- `@xenova/transformers` for fully offline embeddings (no Ollama)
-- Augment account + `AUGMENT_API_TOKEN` for Augment Cloud context engine
+- `@huggingface/transformers` for fully offline embeddings (no Ollama)
 
 ---
 
@@ -65,7 +63,6 @@ No Augment account. No API keys. No manual indexing commands. The Force flows au
 | `ANTHROPIC_API_KEY` | Switches backend to Anthropic | — |
 | `ANTHROPIC_BASE_URL` | Overrides Anthropic endpoint (e.g. Claude Code shim) | `https://api.anthropic.com` |
 | `OLLAMA_BASE_URL` | Ollama server URL | `http://localhost:11434` |
-| `AUGMENT_API_TOKEN` | Enables Augment Cloud context engine (optional) | — |
 | `DARTH_PROXY_PORT` | REST API port | `3666` |
 | `DARTH_LOG_LEVEL` | Log level: `debug`\|`info`\|`warn`\|`error` | `info` |
 
@@ -73,7 +70,7 @@ No Augment account. No API keys. No manual indexing commands. The Force flows au
 
 ## Claude Code Plugin (Zero-Touch)
 
-`darth-proxy plugin install` registers two hooks in `~/.claude/settings.json`:
+`holocron plugin install` registers two hooks in `~/.claude/settings.json`:
 
 - **`UserPromptSubmit`** — Before every Claude Code message, queries the MCP server, formats results into `<codebase_context>` XML, injects as `additionalContext`.
 - **`SessionStart`** — Triggers a background freshness check so the first search of a session is fast.
@@ -99,7 +96,7 @@ If no relevant context is found, the prompt passes through unmodified.
 Start the MCP server over stdio (used by Claude Code):
 
 ```bash
-darth-proxy mcp
+holocron mcp
 ```
 
 ### Tools
@@ -115,7 +112,7 @@ darth-proxy mcp
 
 | URI | Description |
 |-----|-------------|
-| `darth-proxy://index/status` | Index health: file count, last SHA, last indexed timestamp |
+| `holocron://index/status` | Index health: file count, last SHA, last indexed timestamp |
 
 ### Prompts
 
@@ -128,8 +125,8 @@ darth-proxy mcp
 ```json
 {
   "mcpServers": {
-    "darth-proxy": {
-      "command": "darth-proxy",
+    "holocron": {
+      "command": "holocron",
       "args": ["mcp"]
     }
   }
@@ -142,23 +139,23 @@ darth-proxy mcp
 
 ```bash
 # Index a directory (usually automatic — only needed manually on first run without git)
-darth-proxy index .
+holocron index .
 
 # Search
-darth-proxy search "authentication flow"
-darth-proxy search "login handler" --top 10
+holocron search "authentication flow"
+holocron search "login handler" --top 10
 
 # Enhance a prompt with codebase context
-darth-proxy enhance "How does the login flow work?"
+holocron enhance "How does the login flow work?"
 
 # Ask a question (requires inference backend)
-darth-proxy ask "How does authentication work?" --stream
+holocron ask "How does authentication work?" --stream
 
 # Start REST API server
-darth-proxy serve --port 3666
+holocron serve --port 3666
 
 # Register Claude Code plugin hooks
-darth-proxy plugin install
+holocron plugin install
 ```
 
 ---
@@ -166,7 +163,7 @@ darth-proxy plugin install
 ## REST API
 
 ```bash
-darth-proxy serve --port 3666
+holocron serve --port 3666
 ```
 
 ### `POST /search`
@@ -197,9 +194,9 @@ darth-proxy serve --port 3666
 
 ## Configuration
 
-Configuration is resolved in priority order: CLI flags → environment variables → `.darthproxy.json` → defaults.
+Configuration is resolved in priority order: CLI flags → environment variables → `.holocron.json` → defaults.
 
-Create `.darthproxy.json` in your project root:
+Create `.holocron.json` in your project root:
 
 ```json
 {
@@ -224,12 +221,11 @@ Create `.darthproxy.json` in your project root:
 
 | Key | Values | Default | Description |
 |-----|--------|---------|-------------|
-| `mode` | `local` \| `augment` | `local` | `augment` requires `AUGMENT_API_TOKEN` |
 | `embedder` | `noop` \| `ollama` \| `transformers` | `ollama` | Embedding provider |
 | `ollamaEmbedModel` | any Ollama model name | `qwen3-embedding` | Embedding model |
-| `chunker` | `ast` \| `text` | `ast` | `ast` = tree-sitter function/class chunks |
+| `chunker` | `ast` \| `text` | `ast` | `ast` = regex function/class chunks |
 | `vectorStore` | `sqlite` \| `memory` | `sqlite` | `sqlite` persists across restarts |
-| `persistPath` | file path | `~/.darth-proxy/index.db` | SQLite database location |
+| `persistPath` | file path | `~/.holocron/index.db` | SQLite database location |
 
 ### Backend options
 
@@ -248,13 +244,13 @@ Claude Code prompt
     │
     ▼ UserPromptSubmit hook
     │
-    ▼ darth-proxy MCP server
+    ▼ holocron hook user-prompt-submit
     │
     ├── GitTracker.checkFreshness()  — SHA check (<1ms if unchanged)
     │     └── git diff-index → incremental reindex if changed
     │
-    ├── OramaIndex.search()          — BM25 full-text
-    ├── SqliteVectorStore.search()   — cosine similarity (sqlite-vec)
+    ├── SqliteHybridStore.searchBM25()   — FTS5 full-text (porter unicode61)
+    ├── SqliteHybridStore.searchVector() — cosine similarity (sqlite-vec)
     │
     ├── RRF fusion → top-K results
     │
@@ -265,8 +261,7 @@ Claude Code prompt
 ```
 
 **Context engine is pluggable** via the `ContextEngine` interface:
-- `LocalContextAdapter` — default, fully offline
-- `AugmentContextAdapter` — optional, swaps in Augment Cloud when `AUGMENT_API_TOKEN` is set
+- `LocalContextAdapter` — default, fully offline, single SQLite file
 
 **Inference backend is pluggable** via the `InferenceBackend` interface:
 - `OllamaBackend`
@@ -278,7 +273,7 @@ Claude Code prompt
 ## Library Usage
 
 ```typescript
-import { createContextEngine, createBackend, PromptEnhancer } from 'darth-proxy';
+import { createContextEngine, createBackend, PromptEnhancer } from 'holocron';
 
 const engine = await createContextEngine({
   mode: 'local',
@@ -324,15 +319,15 @@ npm run test:coverage
 
 ---
 
-## The Sith Code
+## The Holocron Code
 
 ```
-Peace is a lie, there is only Passion.
-Through Passion, I gain Strength.
-Through Strength, I gain Power.
-Through Power, I gain Victory.
-Through Victory, my chains are broken.
-The Force shall free me.
+The holocron holds all knowledge,
+for those with the will to seek it.
+Through understanding, I gain clarity.
+Through clarity, I gain mastery.
+Through mastery, my code is unbroken.
+The Force guides the search.
 ```
 
-The Empire does not require your Augment subscription. The Dark Side provides.
+The knowledge of a thousand codebases, stored in a single SQLite file. No cloud required.

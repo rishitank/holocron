@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   const program = new Command();
 
   program
-    .name('darth-proxy')
+    .name('holocron')
     .description(pkg.description)
     .version(pkg.version);
 
@@ -36,6 +36,6 @@ async function main(): Promise<void> {
 
 main().catch((err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`[darth-proxy] Error: ${message}\n`);
+  process.stderr.write(`[holocron] Error: ${message}\n`);
   process.exit(1);
 });

@@ -1,5 +1,5 @@
 /**
- * Retrieval quality metrics for darth-proxy benchmark.
+ * Retrieval quality metrics for holocron benchmark.
  *
  * All functions are pure — no I/O, no side effects.
  */

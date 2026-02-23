@@ -213,11 +213,11 @@ describe('MCP Server Integration', () => {
     it('lists the index status resource', async () => {
       const { resources } = await client.listResources();
       const uris = resources.map((r) => r.uri);
-      expect(uris).toContain('darth-proxy://index/status');
+      expect(uris).toContain('holocron://index/status');
     });
 
     it('returns initial unindexed status', async () => {
-      const res = await client.readResource({ uri: 'darth-proxy://index/status' });
+      const res = await client.readResource({ uri: 'holocron://index/status' });
       const status = JSON.parse((res.contents[0] as { text: string }).text);
       expect(status.indexed).toBe(false);
       expect(status.files).toBe(0);
@@ -230,7 +230,7 @@ describe('MCP Server Integration', () => {
         name: 'index_directory',
         arguments: { directory: '/repo' },
       });
-      const res = await client.readResource({ uri: 'darth-proxy://index/status' });
+      const res = await client.readResource({ uri: 'holocron://index/status' });
       const status = JSON.parse((res.contents[0] as { text: string }).text);
       expect(status.indexed).toBe(true);
       expect(status.files).toBe(7);

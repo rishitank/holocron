@@ -71,7 +71,7 @@ Present the enhanced prompt in a code block so the user can review it, then ask 
 // Visual feedback (spinner, "enhancing" label) is printed to the terminal via tput.
 // When the script exits, Claude Code reads the enriched content back into the input.
 const ENHANCE_EDITOR_SCRIPT = `#!/bin/bash
-# darth-proxy prompt enhancer — invoked as $VISUAL by Claude Code (ctrl+p)
+# holocron prompt enhancer — invoked as $VISUAL by Claude Code (ctrl+p)
 # Claude Code calls this with a temp file path; the input box is locked until we exit.
 
 TMPFILE="$1"
@@ -92,9 +92,9 @@ YELLOW=$(tput setaf 3 2>/dev/null || true)
 GREEN=$(tput setaf 2 2>/dev/null || true)
 BOLD=$(tput bold 2>/dev/null || true)
 
-printf '%s' "$YELLOW$BOLD⚡ darth-proxy: enhancing prompt with codebase context...$RESET " >&2
+printf '%s' "$YELLOW$BOLD⚡ holocron: enhancing prompt with codebase context...$RESET " >&2
 
-ENHANCED=$(darth-proxy enhance "$PROMPT" 2>/dev/null)
+ENHANCED=$(holocron enhance "$PROMPT" 2>/dev/null)
 
 if [ -n "$ENHANCED" ]; then
   printf '%s\\n' "$GREEN✓ done$RESET" >&2
@@ -107,20 +107,20 @@ fi
 export function registerPluginInstallCommand(program: Command): void {
   program
     .command('plugin install')
-    .description('Register darth-proxy hooks, MCP server, slash commands, and ctrl+p keybinding in Claude Code')
+    .description('Register holocron hooks, MCP server, slash commands, and ctrl+p keybinding in Claude Code')
     .action(() => {
       const home = homedir();
       const settingsPath = join(home, '.claude', 'settings.json');
       const mcpSettingsPath = join(home, '.claude', 'mcp_settings.json');
       const keybindingsPath = join(home, '.claude', 'keybindings.json');
-      const commandsDir = join(home, '.claude', 'commands', 'darth-proxy');
-      const editorScriptPath = join(home, '.darth-proxy', 'enhance-editor.sh');
+      const commandsDir = join(home, '.claude', 'commands', 'holocron');
+      const editorScriptPath = join(home, '.holocron', 'enhance-editor.sh');
 
       // ── 1. Register hooks in ~/.claude/settings.json ─────────────────────
       const settings = readJsonFile<ClaudeSettings>(settingsPath, {});
       settings.hooks ??= {};
 
-      const userPromptHook = 'darth-proxy hook user-prompt-submit';
+      const userPromptHook = 'holocron hook user-prompt-submit';
       settings.hooks['UserPromptSubmit'] ??= [];
       if (!hasHook(settings.hooks['UserPromptSubmit'], userPromptHook)) {
         settings.hooks['UserPromptSubmit'].push({
@@ -129,7 +129,7 @@ export function registerPluginInstallCommand(program: Command): void {
         });
       }
 
-      const sessionStartHook = 'darth-proxy hook session-start';
+      const sessionStartHook = 'holocron hook session-start';
       settings.hooks['SessionStart'] ??= [];
       if (!hasHook(settings.hooks['SessionStart'], sessionStartHook)) {
         settings.hooks['SessionStart'].push({
@@ -143,14 +143,14 @@ export function registerPluginInstallCommand(program: Command): void {
       // ── 2. Register MCP server in ~/.claude/mcp_settings.json ────────────
       const mcpSettings = readJsonFile<ClaudeSettings>(mcpSettingsPath, {});
       mcpSettings.mcpServers ??= {};
-      mcpSettings.mcpServers['darth-proxy'] = {
-        command: 'darth-proxy',
+      mcpSettings.mcpServers['holocron'] = {
+        command: 'holocron',
         args: ['mcp'],
         env: {},
       };
       writeJsonFile(mcpSettingsPath, mcpSettings);
 
-      // ── 3. Install slash commands to ~/.claude/commands/darth-proxy/ ──────
+      // ── 3. Install slash commands to ~/.claude/commands/holocron/ ──────
       mkdirSync(commandsDir, { recursive: true });
       for (const [filename, content] of Object.entries(SKILLS)) {
         writeFileSync(join(commandsDir, filename), content, 'utf8');
@@ -188,7 +188,7 @@ export function registerPluginInstallCommand(program: Command): void {
           '',
           '  ✓ UserPromptSubmit hook   — context auto-injected on every prompt',
           '  ✓ MCP server              — search_codebase / ask_codebase / enhance_prompt tools',
-          '  ✓ Slash commands          — /darth-proxy:search  /darth-proxy:ask  /darth-proxy:enhance',
+          '  ✓ Slash commands          — /holocron:search  /holocron:ask  /holocron:enhance',
           '  ✓ ctrl+p keybinding       — triggers chat:externalEditor (input locked while enhancing)',
           `  ✓ Enhance script          — ${editorScriptPath}`,
           '',
@@ -199,13 +199,13 @@ export function registerPluginInstallCommand(program: Command): void {
           'Add the line above to your ~/.zshrc (or ~/.bashrc), then restart Claude Code.',
           '',
           'ctrl+p behaviour:',
-          '  1. Input box locks (read-only) while darth-proxy searches the codebase',
+          '  1. Input box locks (read-only) while holocron searches the codebase',
           '  2. Terminal shows: ⚡ enhancing... → ✓ done',
           '  3. Input box is restored with the context-enriched prompt — review and send',
           '',
           'Alternatively, install via Claude Code plugin system (no manual settings editing):',
           `  /plugin marketplace add ${resolve(fileURLToPath(import.meta.url), '../../../../.claude-plugin')}`,
-          '  Then open the Plugin dialog and install darth-proxy from the marketplace.',
+          '  Then open the Plugin dialog and install holocron from the marketplace.',
           '',
         ].join('\n'),
       );

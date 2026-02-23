@@ -5,7 +5,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "darth-proxy hook user-prompt-submit"
+          "command": "holocron hook user-prompt-submit"
         }
       ]
     }
@@ -16,7 +16,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "darth-proxy hook session-start"
+          "command": "holocron hook session-start"
         }
       ]
     }

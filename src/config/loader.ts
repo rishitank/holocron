@@ -25,8 +25,8 @@ function deepMerge<T>(base: T, override: Partial<T>): T {
 
 function loadFileConfig(cwd: string): Partial<AppConfig> {
   const candidates = [
-    join(cwd, '.darthproxy.json'),
-    join(cwd, 'darth-proxy.config.json'),
+    join(cwd, '.holocron.json'),
+    join(cwd, 'holocron.config.json'),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * darth-proxy benchmark harness
+ * holocron benchmark harness
  *
  * Runs 15 ground-truth queries in up to 3 modes:
  *   1. BM25-only  (DARTH_EMBEDDER=noop, always runs)
@@ -32,9 +32,9 @@ const skipColdstart = args.includes('--no-coldstart');
 const corpusIdx = args.indexOf('--corpus');
 const corpusDir = corpusIdx !== -1 && args[corpusIdx + 1]
   ? resolve(args[corpusIdx + 1]!)
-  : resolve(__dirname, '../../');  // default: the darth-proxy repo itself
+  : resolve(__dirname, '../../');  // default: the holocron repo itself
 
-const BENCHMARK_DB_DIR = join(corpusDir, '.darth-benchmark-tmp');
+const BENCHMARK_DB_DIR = join(corpusDir, '.holocron-benchmark-tmp');
 const RESULTS_DIR = __dirname;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
