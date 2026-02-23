@@ -30,10 +30,14 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      - name: Enable Auto-merge on Release PR
-        # release-please-action@v4 outputs pr as a JSON object; extract the number
+      - name: Merge Release PR
+        # release-please-action@v4 outputs pr as a JSON object; extract the number.
+        # Admin bypass is used because GITHUB_TOKEN pushes from release-please do not
+        # trigger CI workflows (GitHub restriction), so required checks never run on
+        # the PR's HEAD. Release PRs only modify CHANGELOG.md + version numbers and
+        # are safe to bypass — the build-release job below runs full tests anyway.
         if: steps.release.outputs.pr
-        run: gh pr merge ${{ fromJSON(steps.release.outputs.pr).number }} --auto --squash --repo ${{ github.repository }}
+        run: gh pr merge ${{ fromJSON(steps.release.outputs.pr).number }} --squash --admin --repo ${{ github.repository }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
