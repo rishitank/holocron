@@ -12,6 +12,7 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  actions: write  # needed to dispatch CI workflow on the release branch
 
 jobs:
   release-please:
