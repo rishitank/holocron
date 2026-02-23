@@ -30,14 +30,19 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      - name: Merge Release PR
+      - name: Trigger CI and enable auto-merge on release PR
         # release-please-action@v4 outputs pr as a JSON object; extract the number.
-        # Admin bypass is used because GITHUB_TOKEN pushes from release-please do not
-        # trigger CI workflows (GitHub restriction), so required checks never run on
-        # the PR's HEAD. Release PRs only modify CHANGELOG.md + version numbers and
-        # are safe to bypass — the build-release job below runs full tests anyway.
+        # GITHUB_TOKEN-created PRs do not trigger CI workflows (GitHub restriction),
+        # so we dispatch CI manually via workflow_dispatch on the PR branch. Once all
+        # required checks pass, auto-merge will squash the PR automatically.
         if: steps.release.outputs.pr
-        run: gh pr merge ${{ fromJSON(steps.release.outputs.pr).number }} --squash --admin --repo ${{ github.repository }}
+        run: |
+          PR_NUMBER=${{ fromJSON(steps.release.outputs.pr).number }}
+          PR_BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+          # Dispatch CI on the release branch so required checks get satisfied
+          gh workflow run ci.yml --ref "$PR_BRANCH"
+          # Enable auto-merge: GitHub will merge once all status checks pass
+          gh pr merge "$PR_NUMBER" --squash --auto
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
