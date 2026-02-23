@@ -6,6 +6,7 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main, 'feature/**']
+  workflow_dispatch: {}
   schedule:
     # Weekly security scans — Sundays at midnight
     - cron: '0 0 * * 0'
