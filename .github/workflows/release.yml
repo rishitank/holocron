@@ -4,51 +4,106 @@ on:
   push:
     branches: [main]
 
-jobs:
-  release:
-    name: Semantic Release
-    runs-on: ubuntu-latest
-    # Only release from push to main — not from the [skip ci] version-bump commit
-    # that semantic-release itself creates.
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+# Prevent multiple release workflows from running simultaneously
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+      pr: ${{ steps.release.outputs.pr }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Auto-merge Release PR
+        if: steps.release.outputs.pr
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const prNumber = ${{ steps.release.outputs.pr }};
+            try {
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                merge_method: 'squash'
+              });
+              core.info(`✅ Release PR #${prNumber} merged successfully`);
+            } catch (error) {
+              core.warning(`⚠️ Failed to auto-merge Release PR #${prNumber}: ${error.message}`);
+              core.warning('Manual merge may be required if there are conflicts or branch protection rules.');
+            }
+
+  # Build, test, publish to npm, and attach artifacts to the GitHub Release
+  build-release:
+    name: Build & Publish
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
     permissions:
-      contents: write        # create tags, releases, push version-bump commit
-      issues: write          # comment on issues when included in a release
-      pull-requests: write   # comment on PRs when included in a release
-      id-token: write        # npm provenance attestation
+      contents: write
+      id-token: write  # OIDC trusted publishing — no NPM_TOKEN secret required
 
     steps:
-      - name: Checkout (full history)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          # Use a bot token so the version-bump commit triggers CI on the
-          # next branch push. The default GITHUB_TOKEN cannot trigger workflows.
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v6
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
-          node-version: '25.x'
+          node-version-file: '.nvmrc'
           cache: 'npm'
-          # No registry-url here — setup-node writes a .npmrc with NODE_AUTH_TOKEN
-          # which overrides OIDC auth and breaks trusted publishing.
+          # No registry-url — setup-node would write a .npmrc that overrides OIDC auth
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Run tests
+        run: npm test
+
       - name: Build
         run: npm run build
 
-      - name: Test
-        run: npm test
-
-      - name: Release
+      - name: Publish to npm (OIDC trusted publishing)
+        # publishConfig.provenance=true in package.json enables signed attestation.
+        # NODE_AUTH_TOKEN cleared so OIDC credentials are used exclusively.
+        run: npm publish --access public
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # OIDC trusted publishing — no long-lived NPM_TOKEN secret needed.
-          # npm exchanges the GitHub OIDC token for a short-lived publish credential.
-          # Explicitly clear NODE_AUTH_TOKEN so it doesn't override OIDC auth.
           NODE_AUTH_TOKEN: ""
-        run: npx semantic-release
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          files: dist/**/*
+
+      - name: Summary
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          {
+            echo "## 🎉 Release ${VERSION} Published!"
+            echo ""
+            echo "**Tag:** \`${TAG_NAME}\`"
+            echo "**Commit:** \`${SHA:0:7}\`"
+            echo ""
+            echo "### Distribution"
+            echo "- [npm: @rishitank/holocron@${VERSION}](https://www.npmjs.com/package/@rishitank/holocron)"
+            echo "- Claude Code: \`/plugin marketplace add rishitank/holocron\`"
+          } >> "$GITHUB_STEP_SUMMARY"
