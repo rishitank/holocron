@@ -1,7 +1,26 @@
-import type { HybridStore, BM25Hit, VectorHit, BatchEntry } from './hybridStore.js';
+import type {
+  HybridStore,
+  BM25Hit,
+  VectorHit,
+  BatchEntry,
+  ChunkLink,
+  ChunkMeta,
+  IndexEvent,
+  MemoryType,
+} from './hybridStore.js';
+import { extractCodeTokens, normalizeQuery } from './tokenizer.js';
 import { ContextError } from '../errors/context.js';
 import { mkdir } from 'node:fs/promises';
 import { dirname, basename } from 'node:path';
+
+/**
+ * Current schema version. Increment when FTS5 or chunk_meta columns change.
+ * On startup, init() detects version drift and drops+recreates virtual tables.
+ *
+ * v2: added code_tokens FTS5 column
+ * v3: added ingested_at, memory_type to chunk_meta; chunk_links; index_events
+ */
+const SCHEMA_VERSION = 3;
 
 /**
  * Extract searchable tokens from a file path.
@@ -26,12 +45,10 @@ type StatementSync = import('node:sqlite').StatementSync;
  * a single database file. Replaces the former OramaIndex + SqliteVectorStore
  * dual-store design.
  *
- * Design decisions:
- * - FTS5 with porter+unicode61 tokenizer for language-aware BM25
- * - vec0 virtual table for ANN with L2/cosine distance
- * - All inserts wrapped in explicit transactions (addBatch, removeByFilePath, clearAll)
- * - No in-memory chunk map → eliminates the double-RAM overhead of OramaIndex
- * - No cold-start loadAllChunks() → FTS5 index persists to disk automatically
+ * Schema v3 (Engram + Context Graph research):
+ * - chunk_meta: added ingested_at (epoch ms) + memory_type ('semantic'|'procedural')
+ * - chunk_links: post-hoc similarity edges for graph-hop expansion at search time
+ * - index_events: audit log of indexing operations (reified decisions)
  */
 export class SqliteHybridStore implements HybridStore {
   private db: DatabaseSync | null = null;
@@ -47,6 +64,10 @@ export class SqliteHybridStore implements HybridStore {
   private stmtGetChunksByFile!: StatementSync;
   private stmtCount!: StatementSync;
   private stmtSearchFts!: StatementSync;
+  private stmtGetChunkById!: StatementSync;
+  private stmtInsertLink!: StatementSync;
+  private stmtGetLinks!: StatementSync;
+  private stmtInsertIndexEvent!: StatementSync;
   private stmtInsertVec: StatementSync | null = null;
   private stmtSearchVec: StatementSync | null = null;
 
@@ -71,10 +92,11 @@ export class SqliteHybridStore implements HybridStore {
     await this.readyPromise;
     if (entries.length === 0) return;
 
+    const now = Date.now();
     const db = this.db!;
     db.exec('BEGIN DEFERRED');
     try {
-      for (const { chunk, vector } of entries) {
+      for (const { chunk, vector, memoryType } of entries) {
         // Upsert: remove stale entry if present
         const existing = this.stmtGetRowidById.get(chunk.id) as
           | { rowid: number | bigint }
@@ -97,11 +119,22 @@ export class SqliteHybridStore implements HybridStore {
           chunk.endLine,
           chunk.language,
           chunk.symbolName ?? null,
+          now,
+          memoryType ?? 'semantic',
         ) as { rowid: number | bigint };
         const rowid = BigInt(row.rowid);
 
+        // Extract camelCase code tokens for FTS5 code_tokens column
+        const codeTokens = extractCodeTokens(chunk.content);
+
         // Insert into FTS5 (rowid must match chunk_meta.rowid)
-        this.stmtInsertFts.run(rowid, chunk.content, chunk.symbolName ?? '', filePathTokens(chunk.filePath));
+        this.stmtInsertFts.run(
+          rowid,
+          chunk.content,
+          chunk.symbolName ?? '',
+          filePathTokens(chunk.filePath),
+          codeTokens,
+        );
 
         // Insert into vec0 (only if embedder produced a non-empty vector)
         if (vector.length > 0) {
@@ -160,6 +193,7 @@ export class SqliteHybridStore implements HybridStore {
     try {
       db.exec('DELETE FROM chunk_meta');
       db.exec('DELETE FROM chunks_fts');
+      db.exec('DELETE FROM chunk_links');
       if (this.dimensions > 0) {
         db.exec('DROP TABLE IF EXISTS vecs');
         db.prepare('DELETE FROM _meta WHERE key = ?').run('dimensions');
@@ -178,14 +212,93 @@ export class SqliteHybridStore implements HybridStore {
     }
   }
 
+  async addLinks(links: ChunkLink[]): Promise<void> {
+    await this.readyPromise;
+    if (links.length === 0) return;
+
+    const db = this.db!;
+    db.exec('BEGIN DEFERRED');
+    try {
+      for (const link of links) {
+        this.stmtInsertLink.run(link.srcId, link.dstId, link.similarity, Date.now());
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // ignore
+      }
+      throw err;
+    }
+  }
+
+  async getLinks(srcId: string, limit = 5): Promise<ChunkLink[]> {
+    await this.readyPromise;
+    if (!this.db) return [];
+    const rows = this.stmtGetLinks.all(srcId, limit) as Array<{
+      dst_id: string;
+      similarity: number;
+    }>;
+    return rows.map((r) => ({ srcId, dstId: r.dst_id, similarity: r.similarity }));
+  }
+
+  async getChunkById(id: string): Promise<ChunkMeta | null> {
+    await this.readyPromise;
+    if (!this.db) return null;
+    const row = this.stmtGetChunkById.get(id) as
+      | {
+          id: string;
+          content: string;
+          file_path: string;
+          start_line: number;
+          end_line: number;
+          language: string;
+          symbol_name: string | null;
+          ingested_at: number;
+          memory_type: string;
+        }
+      | undefined;
+    if (!row) return null;
+    return {
+      chunk: {
+        id: row.id,
+        content: row.content,
+        filePath: row.file_path,
+        startLine: row.start_line,
+        endLine: row.end_line,
+        language: row.language,
+        ...(row.symbol_name ? { symbolName: row.symbol_name } : {}),
+      },
+      ingestedAt: row.ingested_at,
+      memoryType: row.memory_type as MemoryType,
+    };
+  }
+
+  async logIndexEvent(event: IndexEvent): Promise<void> {
+    await this.readyPromise;
+    if (!this.db) return;
+    this.stmtInsertIndexEvent.run(
+      event.eventType,
+      event.filesChanged,
+      event.chunksAdded,
+      event.chunksRemoved,
+      event.commitSha ?? null,
+      Date.now(),
+    );
+  }
+
   // ── public reads ────────────────────────────────────────────────────────
 
   async searchBM25(query: string, topK: number): Promise<BM25Hit[]> {
     await this.readyPromise;
     if (!this.db) return [];
 
+    const normalised = normalizeQuery(query);
+    if (!normalised) return [];
+
     try {
-      const rows = this.stmtSearchFts.all(query, topK) as Array<{
+      const rows = this.stmtSearchFts.all(normalised, topK) as Array<{
         id: string;
         content: string;
         file_path: string;
@@ -193,6 +306,8 @@ export class SqliteHybridStore implements HybridStore {
         end_line: number;
         language: string;
         symbol_name: string | null;
+        ingested_at: number;
+        memory_type: string;
         score: number;
       }>;
 
@@ -208,6 +323,8 @@ export class SqliteHybridStore implements HybridStore {
           language: r.language,
           ...(r.symbol_name ? { symbolName: r.symbol_name } : {}),
         },
+        ingestedAt: r.ingested_at,
+        memoryType: r.memory_type as MemoryType,
       }));
     } catch {
       // FTS5 MATCH can throw on invalid query strings (e.g. bare "*")
@@ -232,6 +349,8 @@ export class SqliteHybridStore implements HybridStore {
       end_line: number;
       language: string;
       symbol_name: string | null;
+      ingested_at: number;
+      memory_type: string;
       distance: number;
     }>;
 
@@ -247,6 +366,8 @@ export class SqliteHybridStore implements HybridStore {
         language: r.language,
         ...(r.symbol_name ? { symbolName: r.symbol_name } : {}),
       },
+      ingestedAt: r.ingested_at,
+      memoryType: r.memory_type as MemoryType,
     }));
   }
 
@@ -275,7 +396,45 @@ export class SqliteHybridStore implements HybridStore {
     this.db = new DatabaseSync(this.dbPath, { allowExtension: true });
     load(this.db);
 
+    // Metadata key-value store — created first so we can check schema version
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS _meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `);
+
+    // ── Schema migration ────────────────────────────────────────────────────
+    const versionRow = this.db
+      .prepare("SELECT value FROM _meta WHERE key = 'schema_version'")
+      .get() as { value: string } | undefined;
+    const storedVersion = versionRow ? parseInt(versionRow.value, 10) : 0;
+
+    if (storedVersion < SCHEMA_VERSION) {
+      if (storedVersion > 0) {
+        process.stderr.write(
+          `[holocron] Schema migrated to v${SCHEMA_VERSION} — reindex required\n`,
+        );
+      }
+      // Drop all tables that change between versions.
+      // Virtual tables (FTS5, vec0) cannot be altered in-place.
+      // chunk_meta gains new columns in v3 (ingested_at, memory_type) — must be dropped
+      // so the CREATE TABLE below recreates it with the full v3 schema.
+      // Dropping data is safe: the "reindex required" notice informs the user, and
+      // GitTracker's SHA mismatch triggers automatic full re-index on next search().
+      this.db.exec('DROP TABLE IF EXISTS chunks_fts');
+      this.db.exec('DROP TABLE IF EXISTS vecs');
+      this.db.exec('DROP TABLE IF EXISTS chunk_meta');
+      this.db.prepare("DELETE FROM _meta WHERE key = 'dimensions'").run();
+      this.dimensions = 0;
+      this.db
+        .prepare("INSERT OR REPLACE INTO _meta(key, value) VALUES ('schema_version', ?)")
+        .run(String(SCHEMA_VERSION));
+    }
+    // ── End migration ───────────────────────────────────────────────────────
+
     // Main chunk metadata table (source of truth)
+    // v3 adds: ingested_at (epoch ms), memory_type ('semantic'|'procedural')
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS chunk_meta (
         rowid       INTEGER PRIMARY KEY,
@@ -285,36 +444,56 @@ export class SqliteHybridStore implements HybridStore {
         start_line  INTEGER NOT NULL DEFAULT 0,
         end_line    INTEGER NOT NULL DEFAULT 0,
         language    TEXT NOT NULL DEFAULT 'text',
-        symbol_name TEXT
+        symbol_name TEXT,
+        ingested_at INTEGER NOT NULL DEFAULT 0,
+        memory_type TEXT NOT NULL DEFAULT 'semantic'
       )
     `);
 
-    // FTS5 BM25 search — content + symbol_name + file_tokens, porter stemming
-    // file_tokens: camelCase-split basename ("gitTracker.ts" → "git tracker")
+    // FTS5 BM25 search — v2 schema: content, symbol_name, file_tokens, code_tokens
     this.db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
         content,
         symbol_name,
         file_tokens,
+        code_tokens,
         tokenize='porter unicode61'
       )
     `);
 
-    // Metadata key-value store (e.g. vector dimensions)
+    // Post-hoc similarity edges (Engram A-MEM bidirectional linking)
+    // Built by LocalContextAdapter.buildChunkLinks(); used for graph-hop expansion
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS _meta (
-        key   TEXT PRIMARY KEY,
-        value TEXT
+      CREATE TABLE IF NOT EXISTS chunk_links (
+        src_id     TEXT NOT NULL,
+        dst_id     TEXT NOT NULL,
+        similarity REAL NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (src_id, dst_id)
+      )
+    `);
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_chunk_links_src ON chunk_links(src_id)');
+
+    // Reified indexing decision audit log (Context Graph provenance)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS index_events (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type      TEXT NOT NULL,
+        files_changed   INTEGER NOT NULL DEFAULT 0,
+        chunks_added    INTEGER NOT NULL DEFAULT 0,
+        chunks_removed  INTEGER NOT NULL DEFAULT 0,
+        commit_sha      TEXT,
+        created_at      INTEGER NOT NULL
       )
     `);
 
     // Prepare all dimension-independent statements
     this.stmtInsertMeta = this.db.prepare(
-      `INSERT INTO chunk_meta(id, content, file_path, start_line, end_line, language, symbol_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING rowid`,
+      `INSERT INTO chunk_meta(id, content, file_path, start_line, end_line, language, symbol_name, ingested_at, memory_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING rowid`,
     );
     this.stmtInsertFts = this.db.prepare(
-      'INSERT INTO chunks_fts(rowid, content, symbol_name, file_tokens) VALUES (?, ?, ?, ?)',
+      'INSERT INTO chunks_fts(rowid, content, symbol_name, file_tokens, code_tokens) VALUES (?, ?, ?, ?, ?)',
     );
     this.stmtDeleteFtsByRowid = this.db.prepare('DELETE FROM chunks_fts WHERE rowid = ?');
     this.stmtDeleteMetaById = this.db.prepare('DELETE FROM chunk_meta WHERE id = ?');
@@ -324,17 +503,37 @@ export class SqliteHybridStore implements HybridStore {
     );
     this.stmtCount = this.db.prepare('SELECT COUNT(*) as n FROM chunk_meta');
 
-    // content weight=10, symbol_name weight=1, file_tokens weight=5
-    // file_tokens boosts matches on the file basename ("git" matches gitTracker.ts)
+    // content weight=10, symbol_name weight=1, file_tokens weight=5, code_tokens weight=3
+    // Also returns ingested_at and memory_type for recency decay + type weighting
     this.stmtSearchFts = this.db.prepare(`
       SELECT m.id, m.content, m.file_path, m.start_line, m.end_line, m.language, m.symbol_name,
-             -bm25(chunks_fts, 10.0, 1.0, 5.0) as score
+             m.ingested_at, m.memory_type,
+             -bm25(chunks_fts, 10.0, 1.0, 5.0, 3.0) as score
       FROM chunks_fts
       JOIN chunk_meta m ON chunks_fts.rowid = m.rowid
       WHERE chunks_fts MATCH ?
-      ORDER BY bm25(chunks_fts, 10.0, 1.0, 5.0)
+      ORDER BY bm25(chunks_fts, 10.0, 1.0, 5.0, 3.0)
       LIMIT ?
     `);
+
+    this.stmtGetChunkById = this.db.prepare(
+      `SELECT id, content, file_path, start_line, end_line, language, symbol_name,
+              ingested_at, memory_type
+       FROM chunk_meta WHERE id = ?`,
+    );
+
+    this.stmtInsertLink = this.db.prepare(
+      `INSERT OR REPLACE INTO chunk_links(src_id, dst_id, similarity, created_at)
+       VALUES (?, ?, ?, ?)`,
+    );
+    this.stmtGetLinks = this.db.prepare(
+      `SELECT dst_id, similarity FROM chunk_links
+       WHERE src_id = ? ORDER BY similarity DESC LIMIT ?`,
+    );
+    this.stmtInsertIndexEvent = this.db.prepare(
+      `INSERT INTO index_events(event_type, files_changed, chunks_added, chunks_removed, commit_sha, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
 
     // Restore vector table if dimensions were previously set
     const dimRow = this.db
@@ -356,7 +555,7 @@ export class SqliteHybridStore implements HybridStore {
     );
     this.stmtSearchVec = this.db.prepare(`
       SELECT m.id, m.content, m.file_path, m.start_line, m.end_line, m.language, m.symbol_name,
-             v.distance
+             m.ingested_at, m.memory_type, v.distance
       FROM (
         SELECT rowid, distance FROM vecs
         WHERE embedding MATCH ?

@@ -30,6 +30,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     contextPlacement: 'prefix',
     injectAsAdditionalContext: true,
     maxCharsPerChunk: 2000,
+    relevanceThreshold: 0.05,
+    maxResultsPerFile: 2,
   },
   plugin: {
     hookScript: 'holocron hook user-prompt-submit',

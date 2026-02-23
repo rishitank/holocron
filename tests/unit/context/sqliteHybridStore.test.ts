@@ -250,4 +250,203 @@ describe('SqliteHybridStore', () => {
     expect(vec).toHaveLength(1);
     expect(vec[0]!.id).toBe('p1');
   });
+
+  // ── v3: ingested_at + memory_type ────────────────────────────────────────
+
+  it('addBatch() stores ingested_at and memory_type; searchBM25() returns them', async () => {
+    const chunk = makeChunk('v3-1', 'function boot() {}', 'src/app.ts');
+    await store.addBatch([{ chunk, vector: new Float32Array(0), memoryType: 'semantic' }]);
+
+    const results = await store.searchBM25('boot', 5);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.memoryType).toBe('semantic');
+    expect(results[0]!.ingestedAt).toBeGreaterThan(0);
+    expect(results[0]!.ingestedAt).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('addBatch() stores procedural memory type correctly', async () => {
+    const chunk = makeChunk('proc-1', '{"name":"holocron"}', 'package.json');
+    await store.addBatch([{ chunk, vector: new Float32Array(0), memoryType: 'procedural' }]);
+
+    const results = await store.searchBM25('holocron', 5);
+    expect(results[0]!.memoryType).toBe('procedural');
+  });
+
+  it('getChunkById() returns chunk with temporal metadata', async () => {
+    const chunk = makeChunk('gb1', 'const x = 1;', 'src/x.ts');
+    await store.addBatch([{ chunk, vector: new Float32Array(0), memoryType: 'semantic' }]);
+
+    const meta = await store.getChunkById('gb1');
+    expect(meta).not.toBeNull();
+    expect(meta!.chunk.id).toBe('gb1');
+    expect(meta!.memoryType).toBe('semantic');
+    expect(meta!.ingestedAt).toBeGreaterThan(0);
+  });
+
+  it('getChunkById() returns null for unknown id', async () => {
+    const result = await store.getChunkById('nonexistent');
+    expect(result).toBeNull();
+  });
+
+  // ── v3: chunk_links ───────────────────────────────────────────────────────
+
+  it('addLinks() stores similarity edges; getLinks() retrieves them', async () => {
+    await store.addBatch([
+      { chunk: makeChunk('a', 'content a'), vector: new Float32Array(0) },
+      { chunk: makeChunk('b', 'content b'), vector: new Float32Array(0) },
+    ]);
+
+    await store.addLinks([{ srcId: 'a', dstId: 'b', similarity: 0.92 }]);
+
+    const links = await store.getLinks('a', 5);
+    expect(links).toHaveLength(1);
+    expect(links[0]!.dstId).toBe('b');
+    expect(links[0]!.similarity).toBeCloseTo(0.92);
+  });
+
+  it('getLinks() returns empty for chunk with no links', async () => {
+    await store.addBatch([{ chunk: makeChunk('lone', 'lonely'), vector: new Float32Array(0) }]);
+    const links = await store.getLinks('lone', 5);
+    expect(links).toHaveLength(0);
+  });
+
+  it('addLinks() upserts on duplicate (src, dst) pair', async () => {
+    await store.addBatch([
+      { chunk: makeChunk('x', 'x'), vector: new Float32Array(0) },
+      { chunk: makeChunk('y', 'y'), vector: new Float32Array(0) },
+    ]);
+
+    await store.addLinks([{ srcId: 'x', dstId: 'y', similarity: 0.8 }]);
+    await store.addLinks([{ srcId: 'x', dstId: 'y', similarity: 0.95 }]); // update
+
+    const links = await store.getLinks('x', 5);
+    expect(links).toHaveLength(1);
+    expect(links[0]!.similarity).toBeCloseTo(0.95);
+  });
+
+  // ── v3: index_events ─────────────────────────────────────────────────────
+
+  it('logIndexEvent() writes to index_events and can be read back', async () => {
+    await store.logIndexEvent({
+      eventType: 'full',
+      filesChanged: 42,
+      chunksAdded: 100,
+      chunksRemoved: 0,
+      commitSha: 'abc123',
+    });
+
+    // Access internal DB to verify
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = (store as any).db;
+    const row = db
+      .prepare("SELECT * FROM index_events WHERE event_type = 'full'")
+      .get() as {
+        event_type: string;
+        files_changed: number;
+        chunks_added: number;
+        commit_sha: string | null;
+        created_at: number;
+      };
+
+    expect(row).toBeDefined();
+    expect(row.event_type).toBe('full');
+    expect(row.files_changed).toBe(42);
+    expect(row.chunks_added).toBe(100);
+    expect(row.commit_sha).toBe('abc123');
+    expect(row.created_at).toBeGreaterThan(0);
+  });
+
+  // ── schema migration ──────────────────────────────────────────────────────
+
+  it('schema_version is written to _meta after init', async () => {
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { rm } = await import('node:fs/promises');
+
+    const dbPath = join(tmpdir(), `test-schema-${Date.now()}.db`);
+    const s = new SqliteHybridStore(dbPath);
+    await s.ensureReady();
+
+    // Access the internal db to verify _meta
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = (s as any).db;
+    const row = db.prepare("SELECT value FROM _meta WHERE key = 'schema_version'").get() as
+      | { value: string }
+      | undefined;
+
+    s.close();
+    await rm(dbPath, { force: true }).catch(() => {});
+
+    expect(row).toBeDefined();
+    expect(parseInt(row!.value, 10)).toBeGreaterThanOrEqual(2);
+  });
+
+  it('old schema (v1: chunks_fts without code_tokens) triggers migration on open', async () => {
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { rm } = await import('node:fs/promises');
+    const { DatabaseSync } = (await import('node:sqlite')) as {
+      DatabaseSync: new (path: string) => import('node:sqlite').DatabaseSync;
+    };
+
+    const dbPath = join(tmpdir(), `test-migrate-${Date.now()}.db`);
+
+    // Manually create a v1-style DB: FTS5 without code_tokens column
+    const rawDb = new DatabaseSync(dbPath);
+    rawDb.exec(`
+      CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS chunk_meta (
+        rowid INTEGER PRIMARY KEY, id TEXT UNIQUE NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        file_path TEXT NOT NULL DEFAULT '',
+        start_line INTEGER NOT NULL DEFAULT 0,
+        end_line INTEGER NOT NULL DEFAULT 0,
+        language TEXT NOT NULL DEFAULT 'text',
+        symbol_name TEXT
+      );
+      CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+        content, symbol_name, file_tokens,
+        tokenize='porter unicode61'
+      );
+      INSERT OR REPLACE INTO _meta(key, value) VALUES ('schema_version', '1');
+    `);
+    // Insert a chunk into the old schema
+    rawDb.exec(`
+      INSERT INTO chunk_meta(id, content, file_path, start_line, end_line, language)
+      VALUES ('old1', 'old content', 'old.ts', 1, 5, 'typescript');
+      INSERT INTO chunks_fts(rowid, content, symbol_name, file_tokens)
+      VALUES (1, 'old content', '', 'old');
+    `);
+    rawDb.close();
+
+    // Opening with SqliteHybridStore should trigger migration (schema v1 → v2)
+    const stderrChunks: string[] = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (process.stderr as any).write = (chunk: string) => {
+      stderrChunks.push(chunk);
+      return true;
+    };
+
+    const s = new SqliteHybridStore(dbPath);
+    await s.ensureReady();
+
+    // Restore stderr
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (process.stderr as any).write = origWrite;
+
+    // Migration message should have been emitted (version number may advance)
+    expect(stderrChunks.join('')).toContain('[holocron] Schema migrated to v');
+
+    // Store should be functional after migration
+    await s.addBatch([{
+      chunk: makeChunk('new1', 'new content after migration'),
+      vector: new Float32Array(0),
+    }]);
+    const results = await s.searchBM25('new content', 5);
+    expect(results.map((r) => r.id)).toContain('new1');
+
+    s.close();
+    await rm(dbPath, { force: true }).catch(() => {});
+  });
 });

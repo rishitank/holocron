@@ -50,6 +50,8 @@ export interface EnhancerConfig {
   contextPlacement: 'prefix' | 'suffix' | 'both';
   injectAsAdditionalContext: boolean;
   maxCharsPerChunk: number;
+  relevanceThreshold: number;
+  maxResultsPerFile: number;
 }
 
 export interface PluginConfig {

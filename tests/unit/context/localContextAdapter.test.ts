@@ -12,11 +12,25 @@ function makeChunk(id: string, filePath = 'file.ts', content = `content of ${id}
   return { id, content, filePath, startLine: 1, endLine: 10, language: 'typescript' };
 }
 
+/** Create a BM25Hit with required v3 temporal metadata. */
+function makeBM25Hit(chunk: Chunk, score = 0.9, ingestedAt = Date.now()): BM25Hit {
+  return { id: chunk.id, score, chunk, ingestedAt, memoryType: 'semantic' };
+}
+
+/** Create a VectorHit with required v3 temporal metadata. */
+function makeVectorHit(chunk: Chunk, score = 0.9, ingestedAt = Date.now()): VectorHit {
+  return { id: chunk.id, score, chunk, ingestedAt, memoryType: 'semantic' };
+}
+
 const mockHybridStore = (): HybridStore => ({
   ensureReady: vi.fn().mockResolvedValue(undefined),
   addBatch: vi.fn().mockResolvedValue(undefined),
   searchBM25: vi.fn().mockResolvedValue([]),
   searchVector: vi.fn().mockResolvedValue([]),
+  getChunkById: vi.fn().mockResolvedValue(null),
+  addLinks: vi.fn().mockResolvedValue(undefined),
+  getLinks: vi.fn().mockResolvedValue([]),
+  logIndexEvent: vi.fn().mockResolvedValue(undefined),
   removeByFilePath: vi.fn().mockResolvedValue(undefined),
   clearAll: vi.fn().mockResolvedValue(undefined),
   close: vi.fn(),
@@ -92,6 +106,31 @@ describe('LocalContextAdapter', () => {
       expect(result.chunks).toBe(3);
     });
 
+    it('passes contextual prefix to embedder.embed(), not raw chunk content', async () => {
+      // Contextual enrichment: embedding receives "File: ...\nLanguage: ...\n\n{content}"
+      // Raw content is still stored in the DB — only the embedding input is enriched.
+      const chunk = makeChunk('c1', '/repo/auth/service.ts', 'function login() {}');
+      const file: FileEntry = {
+        path: '/repo/auth/service.ts',
+        contents: 'function login() {}',
+        language: 'typescript',
+      };
+      const store = mockHybridStore();
+      const embedder = mockEmbedder(3);
+
+      const adapter = new LocalContextAdapter(mockFileIndexer([file]), mockChunker([chunk]), store, embedder);
+      await adapter.indexDirectory('/repo');
+
+      const embedCall = (embedder.embed as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      // Enriched prefix must be present
+      expect(embedCall).toContain('File:');
+      expect(embedCall).toContain('Language:');
+      // Original content must also be present (appended after prefix)
+      expect(embedCall).toContain('function login() {}');
+      // Raw content alone was NOT passed (prefix was added)
+      expect(embedCall).not.toBe('function login() {}');
+    });
+
     it('persists chunk content to store even when embedder is noop (dims=0)', async () => {
       const chunk = makeChunk('c1');
       const file: FileEntry = { path: '/repo/file.ts', contents: 'const x = 1;', language: 'typescript' };
@@ -104,6 +143,57 @@ describe('LocalContextAdapter', () => {
       const call = (store.addBatch as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(call[0].chunk.id).toBe('c1');
       expect(call[0].vector).toEqual(new Float32Array(0));
+    });
+
+    it('passes memoryType in BatchEntry based on file path', async () => {
+      // .ts → semantic; .json → procedural
+      const tsChunk = makeChunk('c-ts', '/repo/src/service.ts');
+      const jsonChunk = makeChunk('c-json', '/repo/package.json');
+      const files: FileEntry[] = [
+        { path: '/repo/src/service.ts', contents: 'x', language: 'typescript' },
+        { path: '/repo/package.json', contents: '{}', language: 'json' },
+      ];
+      const store = mockHybridStore();
+      const adapter = new LocalContextAdapter(
+        mockFileIndexer(files),
+        {
+          chunk: vi.fn().mockImplementation(({ path }: { path: string }) =>
+            path.endsWith('.ts') ? [tsChunk] : [jsonChunk],
+          ),
+        } as unknown as import('../../../src/context/treeChunker.js').Chunker,
+        store,
+        mockEmbedder(0),
+      );
+      await adapter.indexDirectory('/repo');
+
+      const call = (store.addBatch as ReturnType<typeof vi.fn>).mock.calls[0][0] as
+        { chunk: Chunk; vector: Float32Array; memoryType: string }[];
+      const tsEntry = call.find((e) => e.chunk.id === 'c-ts');
+      const jsonEntry = call.find((e) => e.chunk.id === 'c-json');
+      expect(tsEntry?.memoryType).toBe('semantic');
+      expect(jsonEntry?.memoryType).toBe('procedural');
+    });
+
+    it('calls logIndexEvent after indexing with correct counts', async () => {
+      const chunks = [makeChunk('c1'), makeChunk('c2')];
+      const file: FileEntry = { path: '/repo/file.ts', contents: 'x', language: 'typescript' };
+      const store = mockHybridStore();
+
+      const adapter = new LocalContextAdapter(
+        mockFileIndexer([file]),
+        mockChunker(chunks),
+        store,
+        mockEmbedder(0),
+      );
+      await adapter.indexDirectory('/repo');
+
+      expect(store.logIndexEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'full',
+          filesChanged: 1,
+          chunksAdded: 2,
+        }),
+      );
     });
 
     it('removes stale chunks before re-indexing a file', async () => {
@@ -126,8 +216,7 @@ describe('LocalContextAdapter', () => {
     it('returns BM25-only results when embedder is noop', async () => {
       const chunk = makeChunk('bm25-1');
       const store = mockHybridStore();
-      const bm25Hit: BM25Hit = { id: 'bm25-1', score: 0.9, chunk };
-      (store.searchBM25 as ReturnType<typeof vi.fn>).mockResolvedValue([bm25Hit]);
+      (store.searchBM25 as ReturnType<typeof vi.fn>).mockResolvedValue([makeBM25Hit(chunk, 0.9)]);
 
       const adapter = new LocalContextAdapter(mockFileIndexer([]), mockChunker([]), store, mockEmbedder(0));
       const results = await adapter.search('some query');
@@ -152,12 +241,8 @@ describe('LocalContextAdapter', () => {
       const chunkB = makeChunk('bm25-only');
 
       const store = mockHybridStore();
-      (store.searchBM25 as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { id: 'bm25-only', score: 0.8, chunk: chunkB } satisfies BM25Hit,
-      ]);
-      (store.searchVector as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { id: 'vec-only', score: 0.9, chunk: chunkA } satisfies VectorHit,
-      ]);
+      (store.searchBM25 as ReturnType<typeof vi.fn>).mockResolvedValue([makeBM25Hit(chunkB, 0.8)]);
+      (store.searchVector as ReturnType<typeof vi.fn>).mockResolvedValue([makeVectorHit(chunkA, 0.9)]);
 
       const adapter = new LocalContextAdapter(mockFileIndexer([]), mockChunker([]), store, mockEmbedder(3));
       const results = await adapter.search('query');
@@ -172,12 +257,10 @@ describe('LocalContextAdapter', () => {
       const unique = makeChunk('unique-vec');
 
       const store = mockHybridStore();
-      (store.searchBM25 as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { id: 'shared', score: 0.5, chunk: shared } satisfies BM25Hit,
-      ]);
+      (store.searchBM25 as ReturnType<typeof vi.fn>).mockResolvedValue([makeBM25Hit(shared, 0.5)]);
       (store.searchVector as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { id: 'shared', score: 0.8, chunk: shared } satisfies VectorHit,
-        { id: 'unique-vec', score: 0.7, chunk: unique } satisfies VectorHit,
+        makeVectorHit(shared, 0.8),
+        makeVectorHit(unique, 0.7),
       ]);
 
       const adapter = new LocalContextAdapter(mockFileIndexer([]), mockChunker([]), store, mockEmbedder(3));
@@ -190,11 +273,58 @@ describe('LocalContextAdapter', () => {
       expect(sharedResult!.score).toBeGreaterThan(uniqueResult!.score);
     });
 
+    it('applies recency decay: older chunks score lower than fresh chunks', async () => {
+      const freshChunk = makeChunk('fresh');
+      const oldChunk = makeChunk('old');
+      const now = Date.now();
+      const oneYearAgo = now - 365 * 24 * 60 * 60 * 1000;
+
+      const store = mockHybridStore();
+      // Same RRF rank → same base score; only decay differs
+      (store.searchBM25 as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeBM25Hit(freshChunk, 1.0, now),         // ingested now
+        makeBM25Hit(oldChunk, 1.0, oneYearAgo),    // ingested 1 year ago
+      ]);
+
+      const adapter = new LocalContextAdapter(mockFileIndexer([]), mockChunker([]), store, mockEmbedder(0));
+      const results = await adapter.search('query');
+
+      const freshResult = results.find((r) => r.chunk.id === 'fresh');
+      const oldResult = results.find((r) => r.chunk.id === 'old');
+      expect(freshResult).toBeDefined();
+      expect(oldResult).toBeDefined();
+      // Fresh chunk should score higher due to no decay
+      expect(freshResult!.score).toBeGreaterThan(oldResult!.score);
+    });
+
+    it('applies 0.8x weight to procedural chunks', async () => {
+      const semanticChunk = makeChunk('semantic');
+      const proceduralChunk = makeChunk('procedural');
+      const now = Date.now();
+
+      const store = mockHybridStore();
+      // Same rank → same RRF base; only type weight differs
+      (store.searchBM25 as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { id: 'semantic', score: 1.0, chunk: semanticChunk, ingestedAt: now, memoryType: 'semantic' } satisfies BM25Hit,
+        { id: 'procedural', score: 1.0, chunk: proceduralChunk, ingestedAt: now, memoryType: 'procedural' } satisfies BM25Hit,
+      ]);
+
+      const adapter = new LocalContextAdapter(mockFileIndexer([]), mockChunker([]), store, mockEmbedder(0));
+      const results = await adapter.search('query');
+
+      const semanticResult = results.find((r) => r.chunk.id === 'semantic');
+      const proceduralResult = results.find((r) => r.chunk.id === 'procedural');
+      expect(semanticResult).toBeDefined();
+      expect(proceduralResult).toBeDefined();
+      // Semantic should score higher (1.0× vs 0.8×)
+      expect(semanticResult!.score).toBeGreaterThan(proceduralResult!.score);
+    });
+
     it('respects maxResults option', async () => {
       const chunks = Array.from({ length: 10 }, (_, i) => makeChunk(`c${i}`));
       const store = mockHybridStore();
       (store.searchBM25 as ReturnType<typeof vi.fn>).mockResolvedValue(
-        chunks.map((chunk, i) => ({ id: chunk.id, score: 1 - i * 0.1, chunk }) satisfies BM25Hit),
+        chunks.map((chunk, i) => makeBM25Hit(chunk, 1 - i * 0.1)),
       );
 
       const adapter = new LocalContextAdapter(mockFileIndexer([]), mockChunker([]), store, mockEmbedder(0));
