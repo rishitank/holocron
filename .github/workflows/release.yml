@@ -30,24 +30,11 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      - name: Auto-merge Release PR
+      - name: Enable Auto-merge on Release PR
         if: steps.release.outputs.pr
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const prNumber = ${{ steps.release.outputs.pr }};
-            try {
-              await github.rest.pulls.merge({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prNumber,
-                merge_method: 'squash'
-              });
-              core.info(`✅ Release PR #${prNumber} merged successfully`);
-            } catch (error) {
-              core.warning(`⚠️ Failed to auto-merge Release PR #${prNumber}: ${error.message}`);
-              core.warning('Manual merge may be required if there are conflicts or branch protection rules.');
-            }
+        run: gh pr merge ${{ steps.release.outputs.pr }} --auto --squash --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Build, test, publish to npm, and attach artifacts to the GitHub Release
   build-release:
