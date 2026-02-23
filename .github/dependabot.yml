@@ -14,9 +14,18 @@ updates:
     labels:
       - 'dependencies'
       - 'automated'
-    # zod is pinned to ^3.x for MCP SDK compatibility — v4 is a breaking change
+    # Ignore breaking major version bumps that need coordinated manual upgrades
     ignore:
+      # zod pinned to ^3.x for @modelcontextprotocol/sdk compatibility
       - dependency-name: 'zod'
+        versions: ['4.x', '>= 4']
+      # eslint v10 removed @eslint/js — needs manual config migration
+      - dependency-name: 'eslint'
+        versions: ['10.x', '>= 10']
+      # vitest v4 + @vitest/coverage-v8 v4 must be upgraded together
+      - dependency-name: 'vitest'
+        versions: ['4.x', '>= 4']
+      - dependency-name: '@vitest/coverage-v8'
         versions: ['4.x', '>= 4']
     groups:
       dev-dependencies:
