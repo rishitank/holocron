@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           # Use a bot token so the version-bump commit triggers CI on the
