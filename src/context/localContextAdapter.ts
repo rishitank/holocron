@@ -3,7 +3,7 @@ import type { SearchResult, IndexResult, IndexOptions, SearchOptions } from '../
 import type { EmbeddingProvider } from './embedders/embeddingProvider.js';
 import type { Chunker } from './treeChunker.js';
 import type { FileIndexer } from './fileIndexer.js';
-import type { HybridStore, ChunkLink } from './hybridStore.js';
+import type { HybridStore } from './hybridStore.js';
 import { buildContextualContent } from './tokenizer.js';
 import { classifyMemoryType } from './memoryClassifier.js';
 
@@ -49,7 +49,7 @@ const LINK_EXPANSION_THRESHOLD = 0.9;
  * file-descriptor exhaustion on large repositories.
  */
 class Semaphore {
-  private queue: Array<() => void> = [];
+  private queue: (() => void)[] = [];
   private running = 0;
 
   constructor(private readonly limit: number) {}
@@ -211,13 +211,13 @@ export class LocalContextAdapter implements ContextEngine {
    * @param topK Neighbours per chunk to consider (default 5)
    * @returns Number of new links created
    */
-  async buildChunkLinks(options: { minSimilarity?: number; topK?: number } = {}): Promise<{
+  buildChunkLinks(options: { minSimilarity?: number; topK?: number } = {}): Promise<{
     linksCreated: number;
   }> {
-    if (!this.store.hasVectors) return { linksCreated: 0 };
+    if (!this.store.hasVectors) return Promise.resolve({ linksCreated: 0 });
 
-    const minSim = options.minSimilarity ?? 0.85;
-    const topK = options.topK ?? 5;
+    const _minSim = options.minSimilarity ?? 0.85;
+    const _topK = options.topK ?? 5;
 
     // We need all chunk IDs with vectors — fetch via a BM25 wildcard-ish approach.
     // In practice the caller should pass a corpus to process; here we scan by
@@ -225,15 +225,16 @@ export class LocalContextAdapter implements ContextEngine {
     // For a full scan, the store would need a cursor API — deferred.
     // Current implementation: build links for recently-searched chunks on demand.
     // TODO: add HybridStore.scanAllChunkIds() for full corpus linking.
-    return { linksCreated: 0 };
+    return Promise.resolve({ linksCreated: 0 });
   }
 
   async clearIndex(): Promise<void> {
     await this.store.clearAll();
   }
 
-  async dispose(): Promise<void> {
+  dispose(): Promise<void> {
     this.store.close();
+    return Promise.resolve();
   }
 
   // ── private ──────────────────────────────────────────────────────────────
@@ -281,7 +282,7 @@ export class LocalContextAdapter implements ContextEngine {
     // Phase 2: sequential embedding
     // Use contextual content (file + language + symbol prefix) for embedding only —
     // the enriched text is never stored; original chunk.content is persisted.
-    const entries: Array<{ chunk: (typeof allChunks)[0]; vector: Float32Array; memoryType: 'semantic' | 'procedural' }> = [];
+    const entries: { chunk: (typeof allChunks)[0]; vector: Float32Array; memoryType: 'semantic' | 'procedural' }[] = [];
     for (const chunk of allChunks) {
       const vector =
         this.embedder.dimensions !== 0

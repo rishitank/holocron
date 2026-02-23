@@ -50,7 +50,7 @@ describe('MCP Server Integration', () => {
         arguments: { query: 'login handler' },
       });
       expect(result.isError).toBeFalsy();
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      const text = (result.content as { type: string; text: string }[])[0].text;
       expect(text).toContain('login handler');
       expect(text).toContain('src/foo.ts');
     });
@@ -62,7 +62,7 @@ describe('MCP Server Integration', () => {
         arguments: { query: 'unknown xyz' },
       });
       expect(result.isError).toBeFalsy();
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      const text = (result.content as { type: string; text: string }[])[0].text;
       expect(text).toContain('No results found');
     });
 
@@ -73,7 +73,7 @@ describe('MCP Server Integration', () => {
         arguments: { query: 'anything' },
       });
       expect(result.isError).toBe(true);
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      const text = (result.content as { type: string; text: string }[])[0].text;
       expect(text).toContain('Search failed');
     });
 
@@ -100,7 +100,7 @@ describe('MCP Server Integration', () => {
         arguments: { prompt: 'how does auth work?' },
       });
       expect(result.isError).toBeFalsy();
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      const text = (result.content as { type: string; text: string }[])[0].text;
       expect(text).toContain('how does auth work?');
       expect(text).toContain('codebase_context');
     });
@@ -112,7 +112,7 @@ describe('MCP Server Integration', () => {
         arguments: { prompt: 'hello world' },
       });
       expect(result.isError).toBeFalsy();
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      const text = (result.content as { type: string; text: string }[])[0].text;
       expect(text).toBe('hello world');
     });
 
@@ -139,7 +139,7 @@ describe('MCP Server Integration', () => {
         arguments: { directory: '/some/path' },
       });
       expect(result.isError).toBeFalsy();
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      const text = (result.content as { type: string; text: string }[])[0].text;
       expect(text).toContain('42');
       expect(text).toContain('/some/path');
     });
@@ -151,7 +151,7 @@ describe('MCP Server Integration', () => {
         arguments: { directory: '/bad/path' },
       });
       expect(result.isError).toBe(true);
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      const text = (result.content as { type: string; text: string }[])[0].text;
       expect(text).toContain('Index failed');
     });
 
@@ -170,7 +170,7 @@ describe('MCP Server Integration', () => {
         arguments: { question: 'what is login?' },
       });
       expect(result.isError).toBeFalsy();
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      const text = (result.content as { type: string; text: string }[])[0].text;
       expect(text).toContain('The answer is 42.');
     });
 
@@ -186,7 +186,7 @@ describe('MCP Server Integration', () => {
         arguments: { question: 'anything' },
       });
       expect(result.isError).toBe(true);
-      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      const text = (result.content as { type: string; text: string }[])[0].text;
       expect(text).toContain('No inference backend');
       await c2.close();
     });

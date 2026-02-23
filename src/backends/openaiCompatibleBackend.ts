@@ -50,7 +50,7 @@ export class OpenAICompatibleBackend implements InferenceBackend {
     }
 
     const data = (await res.json()) as {
-      choices: Array<{ message: { content: string }; finish_reason?: string }>;
+      choices: { message: { content: string }; finish_reason?: string }[];
       model?: string;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
@@ -92,7 +92,7 @@ export class OpenAICompatibleBackend implements InferenceBackend {
       throw new BackendError('No response body for stream');
     }
 
-    const reader = res.body.getReader();
+    const reader = res.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
     const decoder = new TextDecoder();
     let buffer = '';
 
@@ -107,7 +107,7 @@ export class OpenAICompatibleBackend implements InferenceBackend {
 
         for (const line of lines) {
           const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          if (!trimmed.startsWith('data: ')) continue;
 
           const payload = trimmed.slice(6);
           if (payload === '[DONE]') {
@@ -116,7 +116,7 @@ export class OpenAICompatibleBackend implements InferenceBackend {
           }
 
           let parsed: {
-            choices: Array<{ delta: { content?: string }; finish_reason?: string | null }>;
+            choices: { delta: { content?: string }; finish_reason?: string | null }[];
             model?: string;
           };
           try {

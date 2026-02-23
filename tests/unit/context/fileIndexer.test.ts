@@ -96,7 +96,7 @@ describe('FileIndexer', () => {
         '/repo/server.go': 'package main',
       });
 
-      const entries: Array<{ path: string; language: string }> = [];
+      const entries: { path: string; language: string }[] = [];
       for await (const entry of indexer.walkDirectory('/repo')) {
         entries.push({ path: entry.path, language: entry.language });
       }

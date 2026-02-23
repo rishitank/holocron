@@ -140,7 +140,7 @@ describe('OllamaBackend', () => {
         ]),
       );
 
-      const chunks: Array<{ content: string; done: boolean }> = [];
+      const chunks: { content: string; done: boolean }[] = [];
       for await (const chunk of backend.stream(makeRequest())) {
         chunks.push(chunk);
       }

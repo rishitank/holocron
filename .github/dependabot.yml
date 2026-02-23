@@ -1,19 +1,47 @@
 version: 2
 updates:
-  - package-ecosystem: npm
+  # npm dependencies
+  - package-ecosystem: 'npm'
     directory: '/'
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    reviewers:
-      - rishitank
-    assignees:
-      - rishitank
+      interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+      timezone: 'UTC'
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: 'chore(deps)'
+    labels:
+      - 'dependencies'
+      - 'automated'
+    # zod is pinned to ^3.x for MCP SDK compatibility — v4 is a breaking change
+    ignore:
+      - dependency-name: 'zod'
+        versions: ['4.x', '>= 4']
+    groups:
+      dev-dependencies:
+        dependency-type: 'development'
+        update-types:
+          - 'minor'
+          - 'patch'
+      production-dependencies:
+        dependency-type: 'production'
+        update-types:
+          - 'minor'
+          - 'patch'
 
-  - package-ecosystem: github-actions
+  # GitHub Actions
+  - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
-      interval: weekly
+      interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+      timezone: 'UTC'
     open-pull-requests-limit: 5
-    reviewers:
-      - rishitank
+    commit-message:
+      prefix: 'ci(deps)'
+    labels:
+      - 'dependencies'
+      - 'ci'
+      - 'automated'

@@ -46,7 +46,7 @@ export function createMcpServer(deps: McpServerDeps): McpServer {
     'index-status',
     'holocron://index/status',
     { description: 'Current index health: indexed file count, last git SHA, last indexed timestamp.' },
-    async () => ({
+    () => ({
       contents: [
         {
           uri: 'holocron://index/status',

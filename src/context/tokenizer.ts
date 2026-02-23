@@ -37,7 +37,7 @@ export function extractCodeTokens(content: string): string {
   let m: RegExpExecArray | null;
 
   while ((m = re.exec(content)) !== null) {
-    const id = m[1]!;
+    const id = m[1] ?? '';
     // Only process identifiers that actually have mixed case
     if (/[A-Z]/.test(id) && /[a-z]/.test(id)) {
       const split = splitCamelCase(id);
@@ -67,7 +67,7 @@ export function normalizeQuery(query: string): string {
 
   // Remove FTS5 operator characters that can cause MATCH parse failures
   return normalised
-    .replace(/[*"():\[\]^]/g, ' ')
+    .replace(/[*"():\]^[]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

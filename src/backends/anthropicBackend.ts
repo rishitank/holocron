@@ -60,7 +60,7 @@ export class AnthropicBackend implements InferenceBackend {
     }
 
     const data = (await res.json()) as {
-      content: Array<{ type: string; text: string }>;
+      content: { type: string; text: string }[];
       model: string;
       usage?: { input_tokens?: number; output_tokens?: number };
       stop_reason?: string;
@@ -125,7 +125,7 @@ export class AnthropicBackend implements InferenceBackend {
       throw new BackendError('No response body for stream');
     }
 
-    const reader = res.body.getReader();
+    const reader = res.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
     const decoder = new TextDecoder();
     let buffer = '';
 
@@ -140,7 +140,7 @@ export class AnthropicBackend implements InferenceBackend {
 
         for (const line of lines) {
           const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+          if (!trimmed.startsWith('data: ')) continue;
 
           const payload = trimmed.slice(6);
           if (payload === '[DONE]') {

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 function deepMerge<T>(base: T, override: Partial<T>): T {
   const result = { ...base };
-  for (const key of Object.keys(override) as Array<keyof T>) {
+  for (const key of Object.keys(override) as (keyof T)[]) {
     const val = override[key];
     if (val !== undefined && val !== null) {
       if (

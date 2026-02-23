@@ -11,7 +11,7 @@ import { registerPluginInstallCommand } from './commands/pluginInstall.js';
 import { registerHookCommand } from './commands/hook.js';
 
 const require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+ 
 const pkg = require('../../package.json') as { version: string; description: string };
 
 async function main(): Promise<void> {

@@ -91,11 +91,14 @@ export class TreeChunker implements Chunker {
     }
 
     for (let i = 0; i < boundaries.length; i++) {
-      const start = boundaries[i]!.line;
-      const end = i + 1 < boundaries.length ? boundaries[i + 1]!.line : lines.length;
+      const boundary = boundaries[i];
+      if (!boundary) continue;
+      const start = boundary.line;
+      const nextBoundary = boundaries[i + 1];
+      const end = nextBoundary ? nextBoundary.line : lines.length;
       const content = lines.slice(start, end).join('\n');
 
-      const boundaryName = boundaries[i]!.name;
+      const boundaryName = boundary.name;
       const chunk: Chunk = {
         id: `${path}:${start}:${end}`,
         content,
@@ -115,8 +118,8 @@ export class TreeChunker implements Chunker {
   private findBoundaries(
     lines: string[],
     patterns: LangPattern[],
-  ): Array<{ line: number; name?: string }> {
-    const boundaries: Array<{ line: number; name?: string }> = [];
+  ): { line: number; name?: string }[] {
+    const boundaries: { line: number; name?: string }[] = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] ?? '';

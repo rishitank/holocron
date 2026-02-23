@@ -10,7 +10,7 @@ export class OllamaEmbedder implements EmbeddingProvider {
 
   constructor(
     private readonly baseUrl: string,
-    private readonly model: string = 'qwen3-embedding',
+    private readonly model = 'qwen3-embedding',
     dimensions = 768,
   ) {
     this._dimensions = dimensions;

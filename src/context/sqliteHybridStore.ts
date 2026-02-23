@@ -8,6 +8,7 @@ import type {
   IndexEvent,
   MemoryType,
 } from './hybridStore.js';
+import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { extractCodeTokens, normalizeQuery } from './tokenizer.js';
 import { ContextError } from '../errors/context.js';
 import { mkdir } from 'node:fs/promises';
@@ -35,10 +36,6 @@ function filePathTokens(filePath: string): string {
     .toLowerCase()
     .trim();
 }
-
-// Dynamically imported to avoid top-level issues with experimental node:sqlite API
-type DatabaseSync = import('node:sqlite').DatabaseSync;
-type StatementSync = import('node:sqlite').StatementSync;
 
 /**
  * SqliteHybridStore — merges BM25 (SQLite FTS5) and ANN (sqlite-vec) into
@@ -71,7 +68,7 @@ export class SqliteHybridStore implements HybridStore {
   private stmtInsertVec: StatementSync | null = null;
   private stmtSearchVec: StatementSync | null = null;
 
-  constructor(private readonly dbPath: string = ':memory:') {
+  constructor(private readonly dbPath = ':memory:') {
     this.readyPromise = this.init();
   }
 
@@ -86,6 +83,11 @@ export class SqliteHybridStore implements HybridStore {
     this.db = null;
   }
 
+  private get database(): DatabaseSync {
+    if (!this.db) throw new ContextError('Database accessed before init');
+    return this.db;
+  }
+
   // ── public writes ───────────────────────────────────────────────────────
 
   async addBatch(entries: BatchEntry[]): Promise<void> {
@@ -93,7 +95,7 @@ export class SqliteHybridStore implements HybridStore {
     if (entries.length === 0) return;
 
     const now = Date.now();
-    const db = this.db!;
+    const db = this.database;
     db.exec('BEGIN DEFERRED');
     try {
       for (const { chunk, vector, memoryType } of entries) {
@@ -139,6 +141,8 @@ export class SqliteHybridStore implements HybridStore {
         // Insert into vec0 (only if embedder produced a non-empty vector)
         if (vector.length > 0) {
           this.ensureDimensions(vector.length);
+          // stmtInsertVec is set by ensureDimensions() called just above
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
           this.stmtInsertVec!.run(
             rowid,
             Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength),
@@ -158,13 +162,13 @@ export class SqliteHybridStore implements HybridStore {
 
   async removeByFilePath(filePath: string): Promise<void> {
     await this.readyPromise;
-    const rows = this.stmtGetChunksByFile.all(filePath) as Array<{
+    const rows = this.stmtGetChunksByFile.all(filePath) as {
       rowid: number | bigint;
       id: string;
-    }>;
+    }[];
     if (rows.length === 0) return;
 
-    const db = this.db!;
+    const db = this.database;
     db.exec('BEGIN DEFERRED');
     try {
       for (const row of rows) {
@@ -188,7 +192,7 @@ export class SqliteHybridStore implements HybridStore {
 
   async clearAll(): Promise<void> {
     await this.readyPromise;
-    const db = this.db!;
+    const db = this.database;
     db.exec('BEGIN DEFERRED');
     try {
       db.exec('DELETE FROM chunk_meta');
@@ -216,7 +220,7 @@ export class SqliteHybridStore implements HybridStore {
     await this.readyPromise;
     if (links.length === 0) return;
 
-    const db = this.db!;
+    const db = this.database;
     db.exec('BEGIN DEFERRED');
     try {
       for (const link of links) {
@@ -236,10 +240,10 @@ export class SqliteHybridStore implements HybridStore {
   async getLinks(srcId: string, limit = 5): Promise<ChunkLink[]> {
     await this.readyPromise;
     if (!this.db) return [];
-    const rows = this.stmtGetLinks.all(srcId, limit) as Array<{
+    const rows = this.stmtGetLinks.all(srcId, limit) as {
       dst_id: string;
       similarity: number;
-    }>;
+    }[];
     return rows.map((r) => ({ srcId, dstId: r.dst_id, similarity: r.similarity }));
   }
 
@@ -298,7 +302,7 @@ export class SqliteHybridStore implements HybridStore {
     if (!normalised) return [];
 
     try {
-      const rows = this.stmtSearchFts.all(normalised, topK) as Array<{
+      const rows = this.stmtSearchFts.all(normalised, topK) as {
         id: string;
         content: string;
         file_path: string;
@@ -309,7 +313,7 @@ export class SqliteHybridStore implements HybridStore {
         ingested_at: number;
         memory_type: string;
         score: number;
-      }>;
+      }[];
 
       return rows.map((r) => ({
         id: r.id,
@@ -341,7 +345,7 @@ export class SqliteHybridStore implements HybridStore {
     const rows = this.stmtSearchVec.all(
       Buffer.from(queryVec.buffer, queryVec.byteOffset, queryVec.byteLength),
       topK,
-    ) as Array<{
+    ) as {
       id: string;
       content: string;
       file_path: string;
@@ -352,7 +356,7 @@ export class SqliteHybridStore implements HybridStore {
       ingested_at: number;
       memory_type: string;
       distance: number;
-    }>;
+    }[];
 
     return rows.map((r) => ({
       id: r.id,
@@ -569,7 +573,7 @@ export class SqliteHybridStore implements HybridStore {
   private ensureDimensions(dims: number): void {
     if (this.dimensions === 0) {
       this.dimensions = dims;
-      this.db!.prepare('INSERT OR REPLACE INTO _meta(key, value) VALUES (?, ?)').run(
+      this.database.prepare('INSERT OR REPLACE INTO _meta(key, value) VALUES (?, ?)').run(
         'dimensions',
         String(dims),
       );

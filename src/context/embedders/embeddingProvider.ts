@@ -7,11 +7,11 @@ export interface EmbeddingProvider {
 export class NoopEmbeddingProvider implements EmbeddingProvider {
   readonly dimensions = 0;
 
-  async embed(_text: string): Promise<Float32Array> {
-    return new Float32Array(0);
+  embed(_text: string): Promise<Float32Array> {
+    return Promise.resolve(new Float32Array(0));
   }
 
-  async isAvailable(): Promise<boolean> {
-    return true;
+  isAvailable(): Promise<boolean> {
+    return Promise.resolve(true);
   }
 }
