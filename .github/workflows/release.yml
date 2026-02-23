@@ -45,6 +45,7 @@ jobs:
           gh pr merge "$PR_NUMBER" --squash --auto
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
 
   # Build, test, publish to npm, and attach artifacts to the GitHub Release
   build-release:
