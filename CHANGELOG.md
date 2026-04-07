@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.2](https://github.com/rishitank/holocron/compare/v0.1.1...v0.1.2) (2026-02-23)
+
+
+### 🐛 Bug Fixes
+
+* **ci:** add actions:write permission to dispatch CI on release branch ([29fd9c5](https://github.com/rishitank/holocron/commit/29fd9c5473781216f998537c0b3adb10ae2faa4b))
+* **ci:** set GH_REPO env so gh CLI works without checkout in release job ([bd36b29](https://github.com/rishitank/holocron/commit/bd36b2913cc6377d0d60e11d5d9d665149e70170))
+* **ci:** use --admin bypass for release PRs ([f9c2d02](https://github.com/rishitank/holocron/commit/f9c2d021cc8d0c34a055b7a43aa3a0d7c5cb6f1a))
+* **release:** use auto-merge + CI dispatch instead of --admin bypass ([125402d](https://github.com/rishitank/holocron/commit/125402dff7ef70d340ce6e07ea3a5de2d846645b))
+
 ## [0.1.1](https://github.com/rishitank/holocron/compare/v0.1.0...v0.1.1) (2026-02-23)
 
 
