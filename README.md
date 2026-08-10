@@ -11,7 +11,7 @@ A fully self-contained TypeScript tool that provides local codebase intelligence
 - **Automatic context injection** — Intercepts every Claude Code prompt via `UserPromptSubmit` hook; silently injects relevant code snippets as `additionalContext` before the model sees the prompt. You never type a command.
 - **Lazy git-aware indexing** — Checks the git HEAD SHA on every search. If nothing changed, returns in <1ms. If commits landed, only reindexes the changed files via `git diff-index`.
 - **Hybrid BM25 + vector search** — FTS5 BM25 full-text search fused with sqlite-vec cosine similarity via Reciprocal Rank Fusion (RRF). Single SQLite file, no external processes.
-- **AST-aware chunking** — Chunks code at function/class/method boundaries (not arbitrary line counts), improving retrieval precision by 20–35% vs sliding-window approaches.
+- **Symbol-aware chunking** — Chunks code at function/class/method boundaries rather than arbitrary line counts, using per-language regex patterns (TypeScript, JavaScript, Python, Go, Rust, Java, Ruby, C#). Blocks over 150 lines and unsupported languages fall back to an overlapping sliding window. Run `npm run benchmark` to measure retrieval quality against your own corpus.
 - **SOTA embeddings** — Qwen3-Embedding (MTEB code benchmark 80.68, 2026 SOTA) via Ollama. Falls back to BM25-only when Ollama is unavailable.
 - **Multiple inference backends** — Ollama, Anthropic (API key or Claude Code shim), any OpenAI-compatible endpoint (LiteLLM, vLLM, CCProxy).
 - **MCP server** — Tools, Resources, and Prompts per the MCP 2025-11-25 spec. Integrates directly with Claude Code.
@@ -23,8 +23,8 @@ A fully self-contained TypeScript tool that provides local codebase intelligence
 ## Quick Start (Zero-Account, Offline)
 
 ```bash
-# 1. Install
-npm install -g holocron
+# 1. Install (the package is scoped; the CLI it installs is `holocron`)
+npm install -g @rishitank/holocron
 
 # 2. Pull SOTA embeddings (recommended for semantic search)
 ollama pull qwen3-embedding
@@ -223,9 +223,11 @@ Create `.holocron.json` in your project root:
 |-----|--------|---------|-------------|
 | `embedder` | `noop` \| `ollama` \| `transformers` | `ollama` | Embedding provider |
 | `ollamaEmbedModel` | any Ollama model name | `qwen3-embedding` | Embedding model |
-| `chunker` | `ast` \| `text` | `ast` | `ast` = regex function/class chunks |
+| `chunker` | `ast` \| `text` | `ast` | `ast` = regex-detected symbol boundaries; `text` = fixed-size sliding window |
 | `vectorStore` | `sqlite` \| `memory` | `sqlite` | `sqlite` persists across restarts |
 | `persistPath` | file path | `~/.holocron/index.db` | SQLite database location |
+
+> The `ast` value is a historical name for the symbol-aware chunker in `src/context/treeChunker.ts`. It detects boundaries with per-language regular expressions — there is no AST parse step. The key is kept as `ast` for backwards compatibility with existing config files.
 
 ### Backend options
 
@@ -273,7 +275,7 @@ Claude Code prompt
 ## Library Usage
 
 ```typescript
-import { createContextEngine, createBackend, PromptEnhancer } from 'holocron';
+import { createContextEngine, createBackend, PromptEnhancer } from '@rishitank/holocron';
 
 const engine = await createContextEngine({
   mode: 'local',
@@ -313,9 +315,12 @@ npm run build
 
 # Test with coverage
 npm run test:coverage
+
+# Retrieval benchmark
+npm run benchmark
 ```
 
-**Test matrix**: Node 22, 24, 25 via GitHub Actions CI.
+**CI** (GitHub Actions): lint, type check, tests with coverage, `npm audit`, CodeQL and dependency review. Every job resolves Node from `.nvmrc` — currently **25**, matching the `>=25.0.0` engines constraint. There is no multi-version matrix.
 
 ---
 
