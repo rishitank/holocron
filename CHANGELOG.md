@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.1.2](https://github.com/rishitank/holocron/compare/v0.1.1...v0.1.2) (2026-09-07)
+
+
+### 🐛 Bug Fixes
+
+* **ci:** add actions:write permission to dispatch CI on release branch ([29fd9c5](https://github.com/rishitank/holocron/commit/29fd9c5473781216f998537c0b3adb10ae2faa4b))
+* **ci:** set GH_REPO env so gh CLI works without checkout in release job ([bd36b29](https://github.com/rishitank/holocron/commit/bd36b2913cc6377d0d60e11d5d9d665149e70170))
+* **ci:** use --admin bypass for release PRs ([f9c2d02](https://github.com/rishitank/holocron/commit/f9c2d021cc8d0c34a055b7a43aa3a0d7c5cb6f1a))
+* **release:** use auto-merge + CI dispatch instead of --admin bypass ([125402d](https://github.com/rishitank/holocron/commit/125402dff7ef70d340ce6e07ea3a5de2d846645b))
+
+
+### 📚 Documentation
+
+* correct install name, chunker description, and CI claim ([#58](https://github.com/rishitank/holocron/issues/58)) ([4f0386d](https://github.com/rishitank/holocron/commit/4f0386d6a2713c720ae7c1393015f0f3cff357b9))
+
+
+### 🔧 CI/CD
+
+* **deps:** bump actions/checkout from 6 to 7 ([#46](https://github.com/rishitank/holocron/issues/46)) ([95784c0](https://github.com/rishitank/holocron/commit/95784c04abdbb0c0012f9fcbb804b82455fa7162))
+* **deps:** bump actions/dependency-review-action from 4 to 5 ([#37](https://github.com/rishitank/holocron/issues/37)) ([a6eff2a](https://github.com/rishitank/holocron/commit/a6eff2aada13545358b689f77d0b95c542ff1f89))
+* **deps:** bump actions/setup-node from 6 to 7 ([#54](https://github.com/rishitank/holocron/issues/54)) ([6301890](https://github.com/rishitank/holocron/commit/630189065cf21c70a96f0785b4bc7958a149ff1a))
+* **deps:** Bump actions/upload-artifact from 6 to 7 ([#14](https://github.com/rishitank/holocron/issues/14)) ([e72981a](https://github.com/rishitank/holocron/commit/e72981a2647921c25c23cb73daf68b5bb24a0c1e))
+* **deps:** Bump codecov/codecov-action from 5 to 6 ([#23](https://github.com/rishitank/holocron/issues/23)) ([17d197d](https://github.com/rishitank/holocron/commit/17d197d369477d1d8947efd1d99b5498479e4535))
+* **deps:** bump codecov/codecov-action from 6 to 7 ([#43](https://github.com/rishitank/holocron/issues/43)) ([551cc7b](https://github.com/rishitank/holocron/commit/551cc7b05c89b0a9b8fc718b8df0a29b6aef7927))
+* **deps:** bump googleapis/release-please-action from 4 to 5 ([#33](https://github.com/rishitank/holocron/issues/33)) ([75ec798](https://github.com/rishitank/holocron/commit/75ec798d92efa37c2ff5b653a817118291d66769))
+* **deps:** Bump softprops/action-gh-release from 2 to 3 ([#28](https://github.com/rishitank/holocron/issues/28)) ([d29252d](https://github.com/rishitank/holocron/commit/d29252d0bc4b7a31163f46fd844e5bc7c149d5c5))
+
 ## [0.1.1](https://github.com/rishitank/holocron/compare/v0.1.0...v0.1.1) (2026-02-23)
 
 
