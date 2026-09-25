@@ -1,19 +1,36 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // vi.hoisted: use require() (vitest-injected, sync) — ES import bindings are
 // not yet initialized when vi.hoisted() executes, so we cannot use top-level imports.
-const { vol, memfsPromises } = vi.hoisted(() => {
+const { vol, memfsPromises, hooks } = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Volume, createFsFromVolume } = require('memfs') as typeof import('memfs');
   const vol = new Volume();
   const memfsPromises = createFsFromVolume(vol).promises;
-  return { vol, memfsPromises };
+  // Per-test hooks for simulating races around open() and the kernel's view
+  // of an open descriptor (/proc/self/fd), which memfs does not provide.
+  const hooks: {
+    beforeOpen?: (path: string) => void;
+    afterOpen?: (path: string) => void;
+    readlink?: (path: string) => Promise<string>;
+  } = {};
+  return { vol, memfsPromises, hooks };
 });
 
 vi.mock('node:fs/promises', () => ({
   readdir: (path: string, opts: unknown) => memfsPromises.readdir(path, opts as never),
   realpath: (path: string) => memfsPromises.realpath(path),
-  open: (path: string, flags: number) => memfsPromises.open(path, flags),
+  stat: (path: string): Promise<unknown> => memfsPromises.stat(path),
+  readlink: (path: string): Promise<unknown> =>
+    hooks.readlink ? hooks.readlink(path) : memfsPromises.readlink(path),
+  open: async (path: string, flags: number): Promise<unknown> => {
+    hooks.beforeOpen?.(path);
+    try {
+      return await memfsPromises.open(path, flags);
+    } finally {
+      hooks.afterOpen?.(path);
+    }
+  },
 }));
 
 import { FileIndexer, getLanguage, isWithinRoot } from '../../../src/context/fileIndexer.js';
@@ -32,6 +49,9 @@ describe('FileIndexer', () => {
 
   beforeEach(() => {
     indexer = new FileIndexer();
+    delete hooks.beforeOpen;
+    delete hooks.afterOpen;
+    delete hooks.readlink;
   });
 
   describe('walkDirectory', () => {
@@ -283,6 +303,106 @@ describe('FileIndexer', () => {
     it('returns null for files larger than 1 MB', async () => {
       setupFs({ '/repo/big.ts': 'x'.repeat(1_048_577) });
       expect(await indexer.readFile('/repo/big.ts', '/repo')).toBeNull();
+    });
+  });
+
+  describe('readFileWithinCanonicalRoot', () => {
+    it('reads a file inside the canonical root', async () => {
+      setupFs({ '/repo/a.ts': 'const a = 1;' });
+      const entry = await indexer.readFileWithinCanonicalRoot('/repo/a.ts', '/repo');
+      expect(entry?.path).toBe('/repo/a.ts');
+      expect(entry?.contents).toBe('const a = 1;');
+    });
+
+    it('does not re-resolve the root, so a root later replaced by a symlink cannot widen the boundary', async () => {
+      setupFs({
+        '/repo/a.ts': 'const a = 1;',
+        '/other/a.ts': 'export const SECRET = 1;',
+      });
+      // The directory that was indexed as /repo is replaced by a symlink.
+      vol.rmSync('/repo', { recursive: true });
+      vol.symlinkSync('/other', '/repo');
+
+      expect(await indexer.readFileWithinCanonicalRoot('/repo/a.ts', '/repo')).toBeNull();
+    });
+  });
+
+  describe('post-open containment', () => {
+    /** Swap /repo/sub for a symlink to /secret; returns a function that undoes it. */
+    function swapSubForSymlink(): () => void {
+      vol.renameSync('/repo/sub', '/repo/sub-real');
+      vol.symlinkSync('/secret', '/repo/sub');
+      return () => {
+        vol.unlinkSync('/repo/sub');
+        vol.renameSync('/repo/sub-real', '/repo/sub');
+      };
+    }
+
+    function setupRace(): void {
+      setupFs({
+        '/repo/sub/a.ts': 'const a = 1;',
+        '/secret/a.ts': 'export const KEY = "s3cr3t";',
+      });
+    }
+
+    it('rejects a file when a directory is swapped for a symlink during open and swapped back', async () => {
+      setupRace();
+      let undo: (() => void) | undefined;
+      hooks.beforeOpen = (path): void => {
+        if (path === '/repo/sub/a.ts') undo = swapSubForSymlink();
+      };
+      hooks.afterOpen = (): void => {
+        undo?.();
+        undo = undefined;
+      };
+
+      expect(await indexer.readFile('/repo/sub/a.ts', '/repo')).toBeNull();
+    });
+
+    it('rejects a file when a directory is swapped for a symlink during open and left swapped', async () => {
+      setupRace();
+      hooks.beforeOpen = (path): void => {
+        if (path === '/repo/sub/a.ts') swapSubForSymlink();
+      };
+
+      expect(await indexer.readFile('/repo/sub/a.ts', '/repo')).toBeNull();
+    });
+
+    it('still reads the file when nothing is swapped', async () => {
+      setupRace();
+      expect((await indexer.readFile('/repo/sub/a.ts', '/repo'))?.contents).toBe('const a = 1;');
+    });
+
+    describe('on Linux, using the descriptor path from /proc/self/fd', () => {
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+
+      beforeEach(() => {
+        Object.defineProperty(process, 'platform', { value: 'linux' });
+      });
+
+      afterEach(() => {
+        if (platform) Object.defineProperty(process, 'platform', platform);
+      });
+
+      it('rejects a file whose descriptor points outside the root', async () => {
+        setupRace();
+        const asked: string[] = [];
+        hooks.readlink = (path): Promise<string> => {
+          asked.push(path);
+          return Promise.resolve('/secret/a.ts');
+        };
+
+        expect(await indexer.readFile('/repo/sub/a.ts', '/repo')).toBeNull();
+        expect(asked).toHaveLength(1);
+        expect(asked[0]).toMatch(/^\/proc\/self\/fd\/\d+$/);
+      });
+
+      it('accepts a file whose descriptor points inside the root', async () => {
+        setupRace();
+        hooks.readlink = (): Promise<string> => Promise.resolve('/repo/sub/a.ts');
+
+        expect((await indexer.readFile('/repo/sub/a.ts', '/repo'))?.contents).toBe('const a = 1;');
+      });
     });
   });
 

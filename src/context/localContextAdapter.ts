@@ -274,13 +274,18 @@ export class LocalContextAdapter implements ContextEngine {
     return [...new Set(canonical)];
   }
 
-  /** Read a file through the first allowed root that contains it, else null. */
+  /**
+   * Read a file through the first allowed root that contains it, else null.
+   * `roots` are the canonical roots stored by indexDirectory(); they are used
+   * as stored, not resolved again, so a root later replaced by a symlink
+   * cannot widen what may be read.
+   */
   private async _readWithinRoots(
     filePath: string,
     roots: readonly string[],
   ): Promise<FileEntry | null> {
     for (const root of roots) {
-      const entry = await this.fileIndexer.readFile(filePath, root);
+      const entry = await this.fileIndexer.readFileWithinCanonicalRoot(filePath, root);
       if (entry) return entry;
     }
     return null;

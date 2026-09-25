@@ -59,7 +59,8 @@ const mockFileIndexer = (entries: FileEntry[]): FileIndexer =>
     }),
     resolveRoot: vi.fn().mockImplementation(async (dir: string) => dir),
     canonicalPath: vi.fn().mockImplementation(async (path: string) => path),
-    readFile: vi.fn().mockImplementation(async (path: string, root: string) => {
+    readFile: vi.fn().mockResolvedValue(null),
+    readFileWithinCanonicalRoot: vi.fn().mockImplementation(async (path: string, root: string) => {
       if (!path.startsWith(`${root}/`)) return null;
       return entries.find((e) => e.path === path) ?? null;
     }),
@@ -79,7 +80,7 @@ describe('LocalContextAdapter', () => {
 
       await adapter.indexFiles(['/repo/a.ts', '/etc/b.ts']);
 
-      expect(fileIndexer.readFile).not.toHaveBeenCalled();
+      expect(fileIndexer.readFileWithinCanonicalRoot).not.toHaveBeenCalled();
       expect(chunker.chunk).not.toHaveBeenCalled();
     });
 
@@ -92,9 +93,31 @@ describe('LocalContextAdapter', () => {
 
       await adapter.indexFiles(['/repo/a.ts', '/etc/b.ts']);
 
-      expect(fileIndexer.readFile).toHaveBeenCalledWith('/etc/b.ts', '/repo');
+      expect(fileIndexer.readFileWithinCanonicalRoot).toHaveBeenCalledWith('/etc/b.ts', '/repo');
       expect(chunker.chunk).toHaveBeenCalledTimes(1);
       expect(chunker.chunk).toHaveBeenCalledWith(expect.objectContaining({ path: '/repo/a.ts' }));
+    });
+
+    it('reads against the stored canonical root without resolving it again', async () => {
+      const fileIndexer = mockFileIndexer([inside]);
+      const adapter = new LocalContextAdapter(
+        fileIndexer,
+        mockChunker([makeChunk('c1')]),
+        mockHybridStore(),
+        mockEmbedder(0),
+      );
+      await adapter.indexDirectory('/repo');
+      // If the directory is later replaced by a symlink, resolving it again
+      // would move the boundary. The adapter must keep using '/repo'.
+      vi.mocked(fileIndexer.resolveRoot).mockResolvedValue('/other');
+      vi.mocked(fileIndexer.resolveRoot).mockClear();
+      vi.mocked(fileIndexer.readFileWithinCanonicalRoot).mockClear();
+
+      await adapter.indexFiles(['/repo/a.ts']);
+
+      expect(fileIndexer.resolveRoot).not.toHaveBeenCalled();
+      expect(fileIndexer.readFile).not.toHaveBeenCalled();
+      expect(fileIndexer.readFileWithinCanonicalRoot).toHaveBeenCalledWith('/repo/a.ts', '/repo');
     });
 
     it('clearIndex forgets the indexed roots', async () => {

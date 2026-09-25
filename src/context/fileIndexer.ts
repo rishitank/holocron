@@ -1,5 +1,5 @@
-import { constants } from 'node:fs';
-import { open, readdir, realpath, type FileHandle } from 'node:fs/promises';
+import { constants, type Stats } from 'node:fs';
+import { open, readdir, readlink, realpath, stat, type FileHandle } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export interface FileEntry {
@@ -132,6 +132,53 @@ async function readAtMost(handle: FileHandle, limit: number): Promise<Buffer | n
 }
 
 /**
+ * The path the kernel reports for an open descriptor, or null when the
+ * platform cannot say. On Linux, /proc/self/fd/<fd> is resolved from the
+ * descriptor itself, so it names the file actually opened and cannot be raced.
+ */
+async function descriptorPath(handle: FileHandle): Promise<string | null> {
+  if (process.platform !== 'linux') return null;
+  try {
+    return await readlink(`/proc/self/fd/${handle.fd}`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Post-open containment check for `handle`, opened from the canonical path
+ * `expected` after `expected` was checked to be inside `root`.
+ *
+ * Node has no openat()/openat2(RESOLVE_BENEATH), so a descriptor-relative walk
+ * from the root is not possible, and O_NOFOLLOW only covers the last path
+ * component. If an intermediate directory is swapped for a symlink between the
+ * realpath() check and open(), open() follows it. So verify the file that was
+ * actually opened, not the path that was asked for:
+ * - where the kernel reports the descriptor's path (Linux), it must be inside
+ *   `root`;
+ * - elsewhere, `expected` must still be canonical and still name the same
+ *   inode (dev + ino) as the open handle. A swap that is undone before this
+ *   check leaves a different inode behind, and one that is not undone makes
+ *   `expected` non-canonical.
+ */
+async function openedWithinRoot(
+  handle: FileHandle,
+  info: Stats,
+  expected: string,
+  root: string,
+): Promise<boolean> {
+  const actual = await descriptorPath(handle);
+  if (actual !== null) return isWithinRoot(root, actual);
+  try {
+    if ((await realpath(expected)) !== expected) return false;
+    const current = await stat(expected);
+    return current.dev === info.dev && current.ino === info.ino;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * True when `candidate` is `root` itself or lies underneath it.
  * Both arguments must already be absolute and normalised (e.g. from realpath).
  * Uses path.relative rather than a string prefix test so that `/repo-other`
@@ -207,7 +254,21 @@ export class FileIndexer {
     } catch {
       return null;
     }
-    return this.readContained(resolve(filePath), root);
+    return this.readFileWithinCanonicalRoot(filePath, root);
+  }
+
+  /**
+   * Like readFile(), but for a root the caller has already canonicalised
+   * (with resolveRoot) and authorised. The root is used as given and not
+   * resolved again, so replacing the indexed directory with a symlink later
+   * cannot move the boundary: files then resolve outside `canonicalRoot` and
+   * are rejected.
+   */
+  async readFileWithinCanonicalRoot(
+    filePath: string,
+    canonicalRoot: string,
+  ): Promise<FileEntry | null> {
+    return this.readContained(resolve(filePath), canonicalRoot);
   }
 
   private async *walk(dir: string, root: string): AsyncGenerator<FileEntry> {
@@ -243,7 +304,9 @@ export class FileIndexer {
    *
    * The file is opened first and then inspected through the open handle
    * (fstat), not stat-then-open, so the size and type we check are those of
-   * the file we actually read.
+   * the file we actually read. Before anything is read, openedWithinRoot()
+   * confirms the opened file is still inside `root`, which catches a directory
+   * swapped for a symlink between the realpath() check and open().
    */
   private async readContained(filePath: string, root: string): Promise<FileEntry | null> {
     let realFile: string;
@@ -259,6 +322,7 @@ export class FileIndexer {
       handle = await open(realFile, OPEN_FLAGS);
       const info = await handle.stat();
       if (!info.isFile() || info.size > MAX_FILE_SIZE) return null;
+      if (!(await openedWithinRoot(handle, info, realFile, root))) return null;
 
       const raw = await readAtMost(handle, MAX_FILE_SIZE);
       if (raw === null || isBinary(raw)) return null;
