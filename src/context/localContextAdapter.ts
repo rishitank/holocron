@@ -114,13 +114,19 @@ export class LocalContextAdapter implements ContextEngine {
   /**
    * Re-index specific files. Only files inside a directory previously passed
    * to indexDirectory() are read; any other path is skipped.
+   *
+   * Paths are canonicalised first: indexDirectory() stores realpaths, so a
+   * path given through a symlinked alias must map to the same key, or its
+   * stale chunks would survive and the re-index would add duplicates.
    */
   async indexFiles(filePaths: string[]): Promise<void> {
-    await this._indexFilePaths(filePaths, 'incremental', [...this.indexedRoots]);
+    const canonical = await this._canonicalPaths(filePaths);
+    await this._indexFilePaths(canonical, 'incremental', [...this.indexedRoots]);
   }
 
+  /** Remove chunks for the given files, matched by their canonical path. */
   async removeFiles(filePaths: string[]): Promise<void> {
-    for (const filePath of filePaths) {
+    for (const filePath of await this._canonicalPaths(filePaths)) {
       await this.store.removeByFilePath(filePath);
     }
   }
@@ -259,6 +265,14 @@ export class LocalContextAdapter implements ContextEngine {
   }
 
   // ── private ──────────────────────────────────────────────────────────────
+
+  /** Canonicalise and de-duplicate paths so they match stored keys. */
+  private async _canonicalPaths(filePaths: string[]): Promise<string[]> {
+    const canonical = await Promise.all(
+      filePaths.map((filePath) => this.fileIndexer.canonicalPath(filePath)),
+    );
+    return [...new Set(canonical)];
+  }
 
   /** Read a file through the first allowed root that contains it, else null. */
   private async _readWithinRoots(

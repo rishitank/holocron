@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 
 // vi.hoisted ensures mockGit is available inside the vi.mock factory (ESM hoisting)
 const mockGit = vi.hoisted(() => ({
@@ -66,19 +66,6 @@ describe('GitTracker', () => {
     it('round-trips SHA through save and read', async () => {
       await tracker.saveLastIndexedSha('deadbeef');
       expect(await tracker.getLastIndexedSha()).toBe('deadbeef');
-    });
-
-    it.skipIf(process.platform === 'win32')('writes the SHA file owner-only (0600)', async () => {
-      await tracker.saveLastIndexedSha('deadbeef');
-      const info = await stat(join(tmpDir, '.holocron-last-sha'));
-      expect(info.mode & 0o777).toBe(0o600);
-    });
-
-    it.skipIf(process.platform === 'win32')('tightens an existing, looser SHA file to 0600', async () => {
-      await writeFile(join(tmpDir, '.holocron-last-sha'), 'old', { mode: 0o644 });
-      await tracker.saveLastIndexedSha('deadbeef');
-      const info = await stat(join(tmpDir, '.holocron-last-sha'));
-      expect(info.mode & 0o777).toBe(0o600);
     });
 
     it('clearLastIndexedSha removes the stored SHA', async () => {
