@@ -12,11 +12,11 @@ const { vol, memfsPromises } = vi.hoisted(() => {
 
 vi.mock('node:fs/promises', () => ({
   readdir: (path: string, opts: unknown) => memfsPromises.readdir(path, opts as never),
-  readFile: (path: string) => memfsPromises.readFile(path),
-  stat: (path: string) => memfsPromises.stat(path),
+  realpath: (path: string) => memfsPromises.realpath(path),
+  open: (path: string, flags: number) => memfsPromises.open(path, flags),
 }));
 
-import { FileIndexer, getLanguage } from '../../../src/context/fileIndexer.js';
+import { FileIndexer, getLanguage, isWithinRoot } from '../../../src/context/fileIndexer.js';
 
 function setupFs(files: Record<string, string>) {
   vol.reset();
@@ -133,20 +133,162 @@ describe('FileIndexer', () => {
     });
   });
 
+  describe('walkDirectory containment', () => {
+    async function walk(root: string): Promise<string[]> {
+      const paths: string[] = [];
+      for await (const entry of indexer.walkDirectory(root)) paths.push(entry.path);
+      return paths;
+    }
+
+    it('does not follow a symlinked directory that points outside the root', async () => {
+      setupFs({
+        '/repo/src/main.ts': 'const x = 1;',
+        '/secret/keys.ts': 'export const KEY = "s3cr3t";',
+      });
+      vol.symlinkSync('/secret', '/repo/src/escape');
+
+      const paths = await walk('/repo');
+      expect(paths).toEqual(['/repo/src/main.ts']);
+    });
+
+    it('does not follow a symlinked file that points outside the root', async () => {
+      setupFs({
+        '/repo/main.ts': 'const x = 1;',
+        '/secret/keys.ts': 'export const KEY = "s3cr3t";',
+      });
+      vol.symlinkSync('/secret/keys.ts', '/repo/keys.ts');
+
+      const paths = await walk('/repo');
+      expect(paths).toEqual(['/repo/main.ts']);
+    });
+
+    it('resolves a symlinked root and yields canonical paths under it', async () => {
+      setupFs({ '/real/repo/main.ts': 'const x = 1;' });
+      vol.symlinkSync('/real/repo', '/link');
+
+      expect(await walk('/link')).toEqual(['/real/repo/main.ts']);
+    });
+
+    it('yields nothing for a missing root', async () => {
+      vol.reset();
+      expect(await walk('/nope')).toEqual([]);
+    });
+
+    it('skips files larger than 1 MB', async () => {
+      setupFs({
+        '/repo/big.ts': 'x'.repeat(1_048_577),
+        '/repo/small.ts': 'const x = 1;',
+      });
+      expect(await walk('/repo')).toEqual(['/repo/small.ts']);
+    });
+
+    it('skips binary files', async () => {
+      setupFs({ '/repo/small.ts': 'const x = 1;' });
+      vol.writeFileSync('/repo/blob.ts', Buffer.from([0x41, 0x00, 0x42]));
+      expect(await walk('/repo')).toEqual(['/repo/small.ts']);
+    });
+  });
+
   describe('readFile', () => {
-    it('returns FileEntry for a valid text file', async () => {
+    it('returns FileEntry for a valid text file inside the root', async () => {
       setupFs({ '/repo/hello.ts': 'const x = 1;' });
 
-      const entry = await indexer.readFile('/repo/hello.ts');
+      const entry = await indexer.readFile('/repo/hello.ts', '/repo');
       expect(entry).not.toBeNull();
       expect(entry?.language).toBe('typescript');
       expect(entry?.contents).toBe('const x = 1;');
     });
 
     it('returns null for non-existent file', async () => {
-      vol.reset();
-      const entry = await indexer.readFile('/does/not/exist.ts');
+      setupFs({ '/repo/hello.ts': 'const x = 1;' });
+      const entry = await indexer.readFile('/repo/does-not-exist.ts', '/repo');
       expect(entry).toBeNull();
+    });
+
+    it('returns null when the root does not exist', async () => {
+      setupFs({ '/repo/hello.ts': 'const x = 1;' });
+      expect(await indexer.readFile('/repo/hello.ts', '/missing')).toBeNull();
+    });
+
+    it('rejects a ../ traversal out of the root', async () => {
+      setupFs({
+        '/repo/hello.ts': 'const x = 1;',
+        '/etc/passwd.ts': 'root:x:0:0',
+      });
+      expect(await indexer.readFile('/repo/../etc/passwd.ts', '/repo')).toBeNull();
+    });
+
+    it('rejects an absolute path outside the root', async () => {
+      setupFs({
+        '/repo/hello.ts': 'const x = 1;',
+        '/etc/passwd.ts': 'root:x:0:0',
+      });
+      expect(await indexer.readFile('/etc/passwd.ts', '/repo')).toBeNull();
+    });
+
+    it('rejects a sibling directory that shares the root as a string prefix', async () => {
+      setupFs({
+        '/repo/hello.ts': 'const x = 1;',
+        '/repo-other/leak.ts': 'const leak = 1;',
+      });
+      expect(await indexer.readFile('/repo-other/leak.ts', '/repo')).toBeNull();
+    });
+
+    it('rejects a symlink inside the root that points outside it', async () => {
+      setupFs({
+        '/repo/hello.ts': 'const x = 1;',
+        '/secret/keys.ts': 'export const KEY = "s3cr3t";',
+      });
+      vol.symlinkSync('/secret/keys.ts', '/repo/keys.ts');
+      expect(await indexer.readFile('/repo/keys.ts', '/repo')).toBeNull();
+    });
+
+    it('rejects a path through a symlinked directory that points outside the root', async () => {
+      setupFs({
+        '/repo/hello.ts': 'const x = 1;',
+        '/secret/keys.ts': 'export const KEY = "s3cr3t";',
+      });
+      vol.symlinkSync('/secret', '/repo/escape');
+      expect(await indexer.readFile('/repo/escape/keys.ts', '/repo')).toBeNull();
+    });
+
+    it('allows a symlink whose target stays inside the root', async () => {
+      setupFs({ '/repo/src/real.ts': 'const x = 1;' });
+      vol.symlinkSync('/repo/src/real.ts', '/repo/alias.ts');
+      const entry = await indexer.readFile('/repo/alias.ts', '/repo');
+      expect(entry?.contents).toBe('const x = 1;');
+    });
+
+    it('returns null for a directory, even with a text extension', async () => {
+      setupFs({ '/repo/folder.ts/inner.ts': 'const x = 1;' });
+      expect(await indexer.readFile('/repo/folder.ts', '/repo')).toBeNull();
+    });
+
+    it('reads a file of exactly 1 MB spanning several read chunks', async () => {
+      const content = 'y'.repeat(1_048_576);
+      setupFs({ '/repo/edge.ts': content });
+      const entry = await indexer.readFile('/repo/edge.ts', '/repo');
+      expect(entry?.contents.length).toBe(1_048_576);
+      expect(entry?.contents).toBe(content);
+    });
+
+    it('returns null for files larger than 1 MB', async () => {
+      setupFs({ '/repo/big.ts': 'x'.repeat(1_048_577) });
+      expect(await indexer.readFile('/repo/big.ts', '/repo')).toBeNull();
+    });
+  });
+
+  describe('isWithinRoot', () => {
+    it.each([
+      ['/repo', '/repo', true],
+      ['/repo', '/repo/a.ts', true],
+      ['/repo', '/repo/sub/dir/a.ts', true],
+      ['/repo', '/repo/..foo.ts', true],
+      ['/repo', '/', false],
+      ['/repo', '/repo-other/a.ts', false],
+      ['/repo', '/etc/passwd', false],
+    ])('isWithinRoot(%s, %s) → %s', (root, candidate, expected) => {
+      expect(isWithinRoot(root, candidate)).toBe(expected);
     });
   });
 

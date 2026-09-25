@@ -17,7 +17,7 @@ import { resolve, join } from 'node:path';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { QUERIES } from './queries.js';
-import { recallAtK, mrr as computeMrr, rankOfFirstHit, mean } from './metrics.js';
+import { recallAtK, mrr as computeMrr, rankOfFirstHit } from './metrics.js';
 import { buildReport, printMarkdownTable, writeJsonReport, type QueryResult } from './report.js';
 import { createContextEngine } from '../../src/context/index.js';
 import { loadConfig } from '../../src/config/loader.js';
@@ -184,7 +184,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── Report ────────────────────────────────────────────────────────────────
+  // ── Report ────────────────────────────────────────────────────────────────────
   const report = buildReport(allResults, corpusDir);
   printMarkdownTable(report);
   writeJsonReport(report, RESULTS_DIR);
