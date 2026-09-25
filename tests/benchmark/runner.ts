@@ -184,7 +184,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── Report ────────────────────────────────────────────────────────────────────
+  // ── Report ────────────────────────────────────────────────────────────────
   const report = buildReport(allResults, corpusDir);
   printMarkdownTable(report);
   writeJsonReport(report, RESULTS_DIR);
