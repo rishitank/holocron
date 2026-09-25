@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { open, readdir, realpath, type FileHandle } from 'node:fs/promises';
-import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export interface FileEntry {
   path: string;
@@ -154,6 +154,29 @@ export class FileIndexer {
   }
 
   /**
+   * Canonical form of a file path, matching the keys indexing stores.
+   * Resolves symlinks in the longest prefix that still exists and appends
+   * the rest, so a file (or directory) deleted since it was indexed still
+   * maps to the path it was stored under, even when reached through a
+   * symlinked alias of the root.
+   */
+  async canonicalPath(filePath: string): Promise<string> {
+    const abs = resolve(filePath);
+    const missing: string[] = [];
+    let existing = abs;
+    for (;;) {
+      try {
+        return join(await realpath(existing), ...missing);
+      } catch {
+        const parent = dirname(existing);
+        if (parent === existing) return abs;
+        missing.unshift(basename(existing));
+        existing = parent;
+      }
+    }
+  }
+
+  /**
    * Walk a directory recursively, yielding text file entries.
    * Skips: binary files, files > 1 MB, known noise directories, and symlinks
    * (readdir's Dirent types come from lstat, so a symlink is neither a file
@@ -174,7 +197,8 @@ export class FileIndexer {
   /**
    * Read a single file, returning null on error, when the file is too large
    * or binary, or when it resolves (through `..` or any symlink) to a location
-   * outside `rootDir`.
+   * outside `rootDir`. The returned `path` is the file's canonical (realpath)
+   * location, so aliases of one file map to one stored key.
    */
   async readFile(filePath: string, rootDir: string): Promise<FileEntry | null> {
     let root: string;
@@ -215,7 +239,7 @@ export class FileIndexer {
 
   /**
    * Read `filePath` only if its real location is inside `root` (already
-   * canonical).
+   * canonical). The entry's `path` is that real location.
    *
    * The file is opened first and then inspected through the open handle
    * (fstat), not stat-then-open, so the size and type we check are those of
@@ -240,9 +264,9 @@ export class FileIndexer {
       if (raw === null || isBinary(raw)) return null;
 
       return {
-        path: filePath,
+        path: realFile,
         contents: raw.toString('utf8'),
-        language: getLanguage(filePath),
+        language: getLanguage(realFile),
       };
     } catch {
       return null; // unreadable, vanished, or swapped for a symlink (ELOOP)
