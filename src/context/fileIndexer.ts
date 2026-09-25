@@ -1,5 +1,6 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, extname } from 'node:path';
+import { constants } from 'node:fs';
+import { open, readdir, realpath, type FileHandle } from 'node:fs/promises';
+import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export interface FileEntry {
   path: string;
@@ -96,63 +97,147 @@ function isBinary(buf: Buffer): boolean {
   return nonPrintable / sampleSize > 0.05;
 }
 
+/**
+ * Flags for opening a file we are about to index.
+ * - O_NOFOLLOW: if the final path component was swapped for a symlink after we
+ *   checked it, open() fails (ELOOP) instead of following the link.
+ * - O_NONBLOCK: if it was swapped for a FIFO, open() returns at once instead of
+ *   hanging; the fstat() check below then rejects it as "not a regular file".
+ * @types/node types both as always present, but they are undefined on Windows,
+ * where they fall back to 0.
+ */
+const optionalFlags = constants as Partial<Record<'O_NOFOLLOW' | 'O_NONBLOCK', number>>;
+const OPEN_FLAGS =
+  constants.O_RDONLY | (optionalFlags.O_NOFOLLOW ?? 0) | (optionalFlags.O_NONBLOCK ?? 0);
+
+const READ_CHUNK = 64 * 1024;
+
+/**
+ * Read an open file to EOF, but give up (null) as soon as more than `limit`
+ * bytes arrive. fstat's size can be stale if the file grows after we checked
+ * it, so the cap is enforced on the bytes actually read.
+ */
+async function readAtMost(handle: FileHandle, limit: number): Promise<Buffer | null> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const chunk = Buffer.alloc(Math.min(READ_CHUNK, limit + 1 - total));
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+    if (bytesRead === 0) break;
+    total += bytesRead;
+    if (total > limit) return null;
+    chunks.push(chunk.subarray(0, bytesRead));
+  }
+  return Buffer.concat(chunks, total);
+}
+
+/**
+ * True when `candidate` is `root` itself or lies underneath it.
+ * Both arguments must already be absolute and normalised (e.g. from realpath).
+ * Uses path.relative rather than a string prefix test so that `/repo-other`
+ * is not treated as inside `/repo`.
+ */
+export function isWithinRoot(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  if (rel === '') return true;
+  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
 export class FileIndexer {
   /**
+   * Canonicalise a directory the user chose to index: make it absolute and
+   * resolve every symlink in it. Every file read afterwards must stay under
+   * this path. Throws if the path does not exist.
+   */
+  async resolveRoot(dirPath: string): Promise<string> {
+    return realpath(resolve(dirPath));
+  }
+
+  /**
    * Walk a directory recursively, yielding text file entries.
-   * Skips: binary files, files > 1 MB, known noise directories.
+   * Skips: binary files, files > 1 MB, known noise directories, and symlinks
+   * (readdir's Dirent types come from lstat, so a symlink is neither a file
+   * nor a directory here and is never followed).
+   *
+   * Yielded paths are under the canonical (realpath) root.
    */
   async *walkDirectory(dirPath: string): AsyncGenerator<FileEntry> {
+    let root: string;
+    try {
+      root = await this.resolveRoot(dirPath);
+    } catch {
+      return; // missing or unreadable root
+    }
+    yield* this.walk(root, root);
+  }
+
+  /**
+   * Read a single file, returning null on error, when the file is too large
+   * or binary, or when it resolves (through `..` or any symlink) to a location
+   * outside `rootDir`.
+   */
+  async readFile(filePath: string, rootDir: string): Promise<FileEntry | null> {
+    let root: string;
+    try {
+      root = await this.resolveRoot(rootDir);
+    } catch {
+      return null;
+    }
+    return this.readContained(resolve(filePath), root);
+  }
+
+  private async *walk(dir: string, root: string): AsyncGenerator<FileEntry> {
     let entries;
     try {
-      entries = await readdir(dirPath, { withFileTypes: true });
+      entries = await readdir(dir, { withFileTypes: true });
     } catch {
       return; // permission error or not a directory
     }
 
     for (const entry of entries) {
-      const fullPath = join(dirPath, entry.name);
+      const fullPath = join(dir, entry.name);
+      if (!isWithinRoot(root, fullPath)) continue;
 
       if (entry.isDirectory()) {
         if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
-          yield* this.walkDirectory(fullPath);
+          yield* this.walk(fullPath, root);
         }
         continue;
       }
 
       if (!entry.isFile()) continue;
+      if (!TEXT_EXTENSIONS.has(extname(entry.name).toLowerCase())) continue;
 
-      const ext = extname(entry.name).toLowerCase();
-      if (!TEXT_EXTENSIONS.has(ext)) continue;
-
-      try {
-        const info = await stat(fullPath);
-        if (info.size > MAX_FILE_SIZE) continue;
-
-        const raw = await readFile(fullPath);
-        if (isBinary(raw)) continue;
-
-        yield {
-          path: fullPath,
-          contents: raw.toString('utf8'),
-          language: EXT_TO_LANGUAGE[ext] ?? 'text',
-        };
-      } catch {
-        // Skip unreadable files
-      }
+      const file = await this.readContained(fullPath, root);
+      if (file) yield file;
     }
   }
 
   /**
-   * Read a single file, returning null on error or when the file
-   * is too large / binary.
+   * Read `filePath` only if its real location is inside `root` (already
+   * canonical).
+   *
+   * The file is opened first and then inspected through the open handle
+   * (fstat), not stat-then-open, so the size and type we check are those of
+   * the file we actually read.
    */
-  async readFile(filePath: string): Promise<FileEntry | null> {
+  private async readContained(filePath: string, root: string): Promise<FileEntry | null> {
+    let realFile: string;
     try {
-      const info = await stat(filePath);
-      if (info.size > MAX_FILE_SIZE) return null;
+      realFile = await realpath(filePath);
+    } catch {
+      return null;
+    }
+    if (!isWithinRoot(root, realFile)) return null;
 
-      const raw = await readFile(filePath);
-      if (isBinary(raw)) return null;
+    let handle: FileHandle | undefined;
+    try {
+      handle = await open(realFile, OPEN_FLAGS);
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > MAX_FILE_SIZE) return null;
+
+      const raw = await readAtMost(handle, MAX_FILE_SIZE);
+      if (raw === null || isBinary(raw)) return null;
 
       return {
         path: filePath,
@@ -160,7 +245,9 @@ export class FileIndexer {
         language: getLanguage(filePath),
       };
     } catch {
-      return null;
+      return null; // unreadable, vanished, or swapped for a symlink (ELOOP)
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
   }
 }
