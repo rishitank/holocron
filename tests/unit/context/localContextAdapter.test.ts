@@ -58,6 +58,7 @@ const mockFileIndexer = (entries: FileEntry[]): FileIndexer =>
       for (const e of entries) yield e;
     }),
     resolveRoot: vi.fn().mockImplementation(async (dir: string) => dir),
+    canonicalPath: vi.fn().mockImplementation(async (path: string) => path),
     readFile: vi.fn().mockImplementation(async (path: string, root: string) => {
       if (!path.startsWith(`${root}/`)) return null;
       return entries.find((e) => e.path === path) ?? null;
@@ -107,6 +108,28 @@ describe('LocalContextAdapter', () => {
       await adapter.indexFiles(['/repo/a.ts']);
 
       expect(chunker.chunk).not.toHaveBeenCalled();
+    });
+
+    it('indexFiles and removeFiles use canonical paths, so aliases hit the stored key', async () => {
+      const fileIndexer = mockFileIndexer([inside]);
+      vi.mocked(fileIndexer.canonicalPath).mockImplementation(async (p: string) =>
+        p.replace(/^\/link\//, '/repo/'),
+      );
+      const store = mockHybridStore();
+      const chunker = mockChunker([makeChunk('c1')]);
+      const adapter = new LocalContextAdapter(fileIndexer, chunker, store, mockEmbedder(0));
+      await adapter.indexDirectory('/repo');
+      vi.mocked(store.removeByFilePath).mockClear();
+      vi.mocked(chunker.chunk).mockClear();
+
+      await adapter.indexFiles(['/link/a.ts', '/repo/a.ts']);
+      expect(store.removeByFilePath).toHaveBeenCalledTimes(1);
+      expect(store.removeByFilePath).toHaveBeenCalledWith('/repo/a.ts');
+      expect(chunker.chunk).toHaveBeenCalledTimes(1);
+
+      vi.mocked(store.removeByFilePath).mockClear();
+      await adapter.removeFiles(['/link/a.ts']);
+      expect(store.removeByFilePath).toHaveBeenCalledWith('/repo/a.ts');
     });
 
     it('indexDirectory returns zero counts when the root cannot be resolved', async () => {

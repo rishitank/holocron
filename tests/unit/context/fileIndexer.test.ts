@@ -252,11 +252,19 @@ describe('FileIndexer', () => {
       expect(await indexer.readFile('/repo/escape/keys.ts', '/repo')).toBeNull();
     });
 
-    it('allows a symlink whose target stays inside the root', async () => {
+    it('allows a symlink whose target stays inside the root, keyed by its real path', async () => {
       setupFs({ '/repo/src/real.ts': 'const x = 1;' });
       vol.symlinkSync('/repo/src/real.ts', '/repo/alias.ts');
       const entry = await indexer.readFile('/repo/alias.ts', '/repo');
       expect(entry?.contents).toBe('const x = 1;');
+      expect(entry?.path).toBe('/repo/src/real.ts');
+    });
+
+    it('returns the canonical path when reached through a symlinked root alias', async () => {
+      setupFs({ '/real/repo/a.ts': 'const a = 1;' });
+      vol.symlinkSync('/real/repo', '/link');
+      const entry = await indexer.readFile('/link/a.ts', '/link');
+      expect(entry?.path).toBe('/real/repo/a.ts');
     });
 
     it('returns null for a directory, even with a text extension', async () => {
@@ -275,6 +283,31 @@ describe('FileIndexer', () => {
     it('returns null for files larger than 1 MB', async () => {
       setupFs({ '/repo/big.ts': 'x'.repeat(1_048_577) });
       expect(await indexer.readFile('/repo/big.ts', '/repo')).toBeNull();
+    });
+  });
+
+  describe('canonicalPath', () => {
+    it('resolves an existing file through a symlinked directory', async () => {
+      setupFs({ '/real/repo/a.ts': 'const a = 1;' });
+      vol.symlinkSync('/real/repo', '/link');
+      expect(await indexer.canonicalPath('/link/a.ts')).toBe('/real/repo/a.ts');
+    });
+
+    it('maps a deleted file to the path it was stored under', async () => {
+      setupFs({ '/real/repo/keep.ts': 'x' });
+      vol.symlinkSync('/real/repo', '/link');
+      expect(await indexer.canonicalPath('/link/gone.ts')).toBe('/real/repo/gone.ts');
+    });
+
+    it('maps a file in a deleted directory through the nearest existing ancestor', async () => {
+      setupFs({ '/real/repo/keep.ts': 'x' });
+      vol.symlinkSync('/real/repo', '/link');
+      expect(await indexer.canonicalPath('/link/old/dir/gone.ts')).toBe('/real/repo/old/dir/gone.ts');
+    });
+
+    it('normalises ../ segments', async () => {
+      setupFs({ '/repo/src/a.ts': 'x' });
+      expect(await indexer.canonicalPath('/repo/src/../src/a.ts')).toBe('/repo/src/a.ts');
     });
   });
 
