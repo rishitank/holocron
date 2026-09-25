@@ -15,6 +15,8 @@ export interface ContextEngine {
 
   /**
    * Index (or re-index) a specific list of files.
+   * Implementations must only read files inside a directory previously
+   * passed to indexDirectory(); other paths are skipped.
    */
   indexFiles(filePaths: string[]): Promise<void>;
 

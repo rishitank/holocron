@@ -1,7 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { mkdir, rm } from 'node:fs/promises';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // vi.hoisted ensures mockGit is available inside the vi.mock factory (ESM hoisting)
 const mockGit = vi.hoisted(() => ({
@@ -14,23 +11,39 @@ vi.mock('simple-git', () => ({
   simpleGit: vi.fn(() => mockGit),
 }));
 
+// In-memory filesystem: unit tests do no real I/O. Real file-mode checks live
+// in tests/integration/gitTracker.permissions.test.ts.
+const { vol, memfsPromises } = vi.hoisted(() => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { Volume, createFsFromVolume } = require('memfs') as typeof import('memfs');
+  const vol = new Volume();
+  const memfsPromises = createFsFromVolume(vol).promises;
+  return { vol, memfsPromises };
+});
+
+vi.mock('node:fs/promises', () => ({
+  readFile: (path: string, opts: unknown): Promise<unknown> =>
+    memfsPromises.readFile(path, opts as never),
+  writeFile: (path: string, data: string, opts: unknown): Promise<void> =>
+    memfsPromises.writeFile(path, data, opts as never),
+  chmod: (path: string, mode: number): Promise<void> => memfsPromises.chmod(path, mode),
+  rm: (path: string, opts: unknown): Promise<void> => memfsPromises.rm(path, opts as never),
+}));
+
+const PERSIST_DIR = '/persist';
+
 import { GitTracker } from '../../../src/context/gitTracker.js';
 
 describe('GitTracker', () => {
-  let tmpDir: string;
   let tracker: GitTracker;
 
-  beforeEach(async () => {
-    tmpDir = join(tmpdir(), `gt-test-${Date.now()}`);
-    await mkdir(tmpDir, { recursive: true });
-    tracker = new GitTracker(tmpDir);
+  beforeEach(() => {
+    vol.reset();
+    vol.mkdirSync(PERSIST_DIR, { recursive: true });
+    tracker = new GitTracker(PERSIST_DIR);
     mockGit.revparse.mockReset();
     mockGit.diffSummary.mockReset();
     mockGit.diff.mockReset();
-  });
-
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
   });
 
   describe('isGitRepo', () => {
@@ -65,6 +78,11 @@ describe('GitTracker', () => {
     it('round-trips SHA through save and read', async () => {
       await tracker.saveLastIndexedSha('deadbeef');
       expect(await tracker.getLastIndexedSha()).toBe('deadbeef');
+    });
+
+    it('writes the SHA file with mode 0600', async () => {
+      await tracker.saveLastIndexedSha('deadbeef');
+      expect(vol.statSync(`${PERSIST_DIR}/.holocron-last-sha`).mode & 0o777).toBe(0o600);
     });
 
     it('clearLastIndexedSha removes the stored SHA', async () => {
