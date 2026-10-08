@@ -19,6 +19,17 @@
       "schedule": ["before 3am on Monday"],
       "reviewers": ["rishitank"],
       "assignees": ["rishitank"]
+    },
+    {
+      "description": "Hold TypeScript 7: typescript-eslint 8.x peers typescript <6.1.0, so npm ci fails (#84). Lift once typescript-eslint accepts 7. https://typescript-eslint.io/users/dependency-versions/",
+      "matchPackageNames": ["typescript"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "vitest and @vitest/* move together: @vitest/coverage-v8 peers the exact vitest version (#74 and #82 split them and both failed npm ci).",
+      "matchPackageNames": ["vitest", "/^@vitest\\//"],
+      "groupName": "vitest"
     }
   ]
 }
