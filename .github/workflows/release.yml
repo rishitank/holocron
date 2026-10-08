@@ -3,6 +3,10 @@ name: Release
 on:
   push:
     branches: [main]
+  # Manual trigger: refreshes the release PR (e.g. after it falls behind main)
+  # without needing a new push to main. Run it from main; the jobs below are
+  # guarded so a dispatch from any other ref does nothing.
+  workflow_dispatch:
 
 # Prevent multiple release workflows from running simultaneously
 concurrency:
@@ -18,6 +22,7 @@ jobs:
   release-please:
     name: Release Please
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}

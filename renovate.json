@@ -1,24 +1,17 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:base"],
+  "extends": ["github>rishitank/.github:node"],
   "packageRules": [
     {
-      "matchUpdateTypes": ["minor", "patch"],
-      "matchPackagePatterns": [
-        "^@orama",
-        "^@modelcontextprotocol",
-        "^fastify",
-        "^vitest",
-        "^zod",
-        "^simple-git"
-      ],
-      "automerge": true
+      "description": "vitest and @vitest/coverage-v8 must move across majors together (coverage-v8 pins vitest to the same major). The node preset already groups their minor/patch updates.",
+      "matchPackageNames": ["vitest", "@vitest/**"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "vitest major"
     },
     {
-      "matchPackageNames": ["sqlite-vec", "tree-sitter", "tree-sitter-wasms"],
-      "schedule": ["before 3am on Monday"],
-      "reviewers": ["rishitank"],
-      "assignees": ["rishitank"]
+      "description": "typescript-eslint's peer range is typescript >=4.8.4 <6.1.0, so a newer TypeScript fails `npm ci` with ERESOLVE. Raise or remove this cap when typescript-eslint widens its peer range.",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<6.1.0"
     }
   ]
 }
