@@ -1,16 +1,16 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:base"],
+  "extends": ["github>rishitank/.github:node"],
   "packageRules": [
     {
       "matchUpdateTypes": ["minor", "patch"],
-      "matchPackagePatterns": [
-        "^@orama",
-        "^@modelcontextprotocol",
-        "^fastify",
-        "^vitest",
-        "^zod",
-        "^simple-git"
+      "matchPackageNames": [
+        "/^@orama/",
+        "/^@modelcontextprotocol/",
+        "/^fastify/",
+        "/^vitest/",
+        "/^zod/",
+        "/^simple-git/"
       ],
       "automerge": true
     },
