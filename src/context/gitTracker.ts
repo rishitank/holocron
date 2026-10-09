@@ -1,5 +1,5 @@
 import { simpleGit, type SimpleGit } from 'simple-git';
-import { readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export interface ChangedFiles {
@@ -58,9 +58,15 @@ export class GitTracker {
     }
   }
 
-  /** Persist the current indexed SHA. */
+  /**
+   * Persist the current indexed SHA.
+   * Written owner-read/write only (0600): the file lives next to the index and
+   * nobody else on the machine needs to read or rewrite it. `mode` only
+   * applies when the file is created, so an existing file is re-chmodded too.
+   */
   async saveLastIndexedSha(sha: string): Promise<void> {
-    await writeFile(this.shaFile, sha, 'utf8');
+    await writeFile(this.shaFile, sha, { encoding: 'utf8', mode: 0o600 });
+    await chmod(this.shaFile, 0o600);
   }
 
   /** Clear the stored SHA, forcing a full re-index on next call. */

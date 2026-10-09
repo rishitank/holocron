@@ -2,6 +2,7 @@ import type { OllamaConfig } from '../types/config.types.js';
 import type { InferenceRequest, InferenceResponse, InferenceChunk } from '../types/inference.types.js';
 import type { InferenceBackend } from './inferenceBackend.js';
 import { BackendError } from '../errors/backend.js';
+import { trimTrailingSlashes } from './baseUrl.js';
 
 export class OllamaBackend implements InferenceBackend {
   private readonly baseUrl: string;
@@ -10,7 +11,7 @@ export class OllamaBackend implements InferenceBackend {
   private readonly maxTokens: number | undefined;
 
   constructor(config: OllamaConfig) {
-    this.baseUrl = config.baseUrl.replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(config.baseUrl);
     this.model = config.model;
     this.temperature = config.temperature;
     this.maxTokens = config.maxTokens;

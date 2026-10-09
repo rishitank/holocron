@@ -2,7 +2,7 @@ import type { ContextEngine } from './contextEngine.js';
 import type { SearchResult, IndexResult, IndexOptions, SearchOptions } from '../types/context.types.js';
 import type { EmbeddingProvider } from './embedders/embeddingProvider.js';
 import type { Chunker } from './treeChunker.js';
-import type { FileIndexer } from './fileIndexer.js';
+import type { FileEntry, FileIndexer } from './fileIndexer.js';
 import type { HybridStore } from './hybridStore.js';
 import { buildContextualContent } from './tokenizer.js';
 import { classifyMemoryType } from './memoryClassifier.js';
@@ -79,6 +79,14 @@ class Semaphore {
 const IO_CONCURRENCY = 16;
 
 export class LocalContextAdapter implements ContextEngine {
+  /**
+   * Canonical (realpath) directories the caller has explicitly indexed.
+   * File contents are only ever read from inside one of these, which bounds
+   * what can end up in search results and so in prompts sent to an
+   * inference backend.
+   */
+  private readonly indexedRoots = new Set<string>();
+
   constructor(
     private readonly fileIndexer: FileIndexer,
     private readonly chunker: Chunker,
@@ -87,20 +95,38 @@ export class LocalContextAdapter implements ContextEngine {
   ) {}
 
   async indexDirectory(dirPath: string, _options?: IndexOptions): Promise<IndexResult> {
+    let root: string;
+    try {
+      root = await this.fileIndexer.resolveRoot(dirPath);
+    } catch {
+      return { indexedFiles: 0, chunks: 0 }; // missing or unreadable directory
+    }
+    this.indexedRoots.add(root);
+
     const filePaths: string[] = [];
-    for await (const entry of this.fileIndexer.walkDirectory(dirPath)) {
+    for await (const entry of this.fileIndexer.walkDirectory(root)) {
       filePaths.push(entry.path);
     }
-    const chunks = await this._indexFilePaths(filePaths, 'full');
+    const chunks = await this._indexFilePaths(filePaths, 'full', [root]);
     return { indexedFiles: filePaths.length, chunks };
   }
 
+  /**
+   * Re-index specific files. Only files inside a directory previously passed
+   * to indexDirectory() are read; any other path is skipped.
+   *
+   * Paths are canonicalised first: indexDirectory() stores realpaths, so a
+   * path given through a symlinked alias must map to the same key, or its
+   * stale chunks would survive and the re-index would add duplicates.
+   */
   async indexFiles(filePaths: string[]): Promise<void> {
-    await this._indexFilePaths(filePaths, 'incremental');
+    const canonical = await this._canonicalPaths(filePaths);
+    await this._indexFilePaths(canonical, 'incremental', [...this.indexedRoots]);
   }
 
+  /** Remove chunks for the given files, matched by their canonical path. */
   async removeFiles(filePaths: string[]): Promise<void> {
-    for (const filePath of filePaths) {
+    for (const filePath of await this._canonicalPaths(filePaths)) {
       await this.store.removeByFilePath(filePath);
     }
   }
@@ -230,6 +256,7 @@ export class LocalContextAdapter implements ContextEngine {
 
   async clearIndex(): Promise<void> {
     await this.store.clearAll();
+    this.indexedRoots.clear();
   }
 
   dispose(): Promise<void> {
@@ -238,6 +265,31 @@ export class LocalContextAdapter implements ContextEngine {
   }
 
   // ── private ──────────────────────────────────────────────────────────────
+
+  /** Canonicalise and de-duplicate paths so they match stored keys. */
+  private async _canonicalPaths(filePaths: string[]): Promise<string[]> {
+    const canonical = await Promise.all(
+      filePaths.map((filePath) => this.fileIndexer.canonicalPath(filePath)),
+    );
+    return [...new Set(canonical)];
+  }
+
+  /**
+   * Read a file through the first allowed root that contains it, else null.
+   * `roots` are the canonical roots stored by indexDirectory(); they are used
+   * as stored, not resolved again, so a root later replaced by a symlink
+   * cannot widen what may be read.
+   */
+  private async _readWithinRoots(
+    filePath: string,
+    roots: readonly string[],
+  ): Promise<FileEntry | null> {
+    for (const root of roots) {
+      const entry = await this.fileIndexer.readFileWithinCanonicalRoot(filePath, root);
+      if (entry) return entry;
+    }
+    return null;
+  }
 
   /**
    * Index a list of file paths using a two-phase strategy:
@@ -252,6 +304,7 @@ export class LocalContextAdapter implements ContextEngine {
   private async _indexFilePaths(
     filePaths: string[],
     eventType: 'full' | 'incremental' | 'files',
+    roots: readonly string[],
   ): Promise<number> {
     if (filePaths.length === 0) return 0;
 
@@ -265,7 +318,7 @@ export class LocalContextAdapter implements ContextEngine {
     const perFileChunks = await Promise.all(
       filePaths.map((filePath) =>
         sem.run(async () => {
-          const entry = await this.fileIndexer.readFile(filePath);
+          const entry = await this._readWithinRoots(filePath, roots);
           if (!entry) return [];
           return this.chunker.chunk({
             path: entry.path,

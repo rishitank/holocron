@@ -2,6 +2,7 @@ import type { OpenAICompatibleConfig } from '../types/config.types.js';
 import type { InferenceRequest, InferenceResponse, InferenceChunk } from '../types/inference.types.js';
 import type { InferenceBackend } from './inferenceBackend.js';
 import { BackendError } from '../errors/backend.js';
+import { trimTrailingSlashes } from './baseUrl.js';
 
 export class OpenAICompatibleBackend implements InferenceBackend {
   private readonly baseUrl: string;
@@ -11,7 +12,7 @@ export class OpenAICompatibleBackend implements InferenceBackend {
   private readonly maxTokens: number | undefined;
 
   constructor(config: OpenAICompatibleConfig) {
-    this.baseUrl = config.baseUrl.replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(config.baseUrl);
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.temperature = config.temperature;

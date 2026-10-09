@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { LocalContextAdapter } from '../../../src/context/localContextAdapter.js';
 import type { HybridStore, BM25Hit, VectorHit } from '../../../src/context/hybridStore.js';
 import type { EmbeddingProvider } from '../../../src/context/embedders/embeddingProvider.js';
@@ -57,7 +57,11 @@ const mockFileIndexer = (entries: FileEntry[]): FileIndexer =>
     walkDirectory: vi.fn().mockImplementation(async function* () {
       for (const e of entries) yield e;
     }),
-    readFile: vi.fn().mockImplementation(async (path: string) => {
+    resolveRoot: vi.fn().mockImplementation(async (dir: string) => dir),
+    canonicalPath: vi.fn().mockImplementation(async (path: string) => path),
+    readFile: vi.fn().mockResolvedValue(null),
+    readFileWithinCanonicalRoot: vi.fn().mockImplementation(async (path: string, root: string) => {
+      if (!path.startsWith(`${root}/`)) return null;
       return entries.find((e) => e.path === path) ?? null;
     }),
   }) as unknown as FileIndexer;
@@ -65,6 +69,107 @@ const mockFileIndexer = (entries: FileEntry[]): FileIndexer =>
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('LocalContextAdapter', () => {
+  describe('root containment', () => {
+    const inside: FileEntry = { path: '/repo/a.ts', contents: 'const a = 1;', language: 'typescript' };
+    const outside: FileEntry = { path: '/etc/b.ts', contents: 'const b = 1;', language: 'typescript' };
+
+    it('indexFiles reads nothing before any directory has been indexed', async () => {
+      const fileIndexer = mockFileIndexer([inside, outside]);
+      const chunker = mockChunker([makeChunk('c1')]);
+      const adapter = new LocalContextAdapter(fileIndexer, chunker, mockHybridStore(), mockEmbedder(0));
+
+      await adapter.indexFiles(['/repo/a.ts', '/etc/b.ts']);
+
+      expect(fileIndexer.readFileWithinCanonicalRoot).not.toHaveBeenCalled();
+      expect(chunker.chunk).not.toHaveBeenCalled();
+    });
+
+    it('indexFiles only reads files inside an indexed root', async () => {
+      const fileIndexer = mockFileIndexer([inside, outside]);
+      const chunker = mockChunker([makeChunk('c1')]);
+      const adapter = new LocalContextAdapter(fileIndexer, chunker, mockHybridStore(), mockEmbedder(0));
+      await adapter.indexDirectory('/repo');
+      vi.mocked(chunker.chunk).mockClear();
+
+      await adapter.indexFiles(['/repo/a.ts', '/etc/b.ts']);
+
+      expect(fileIndexer.readFileWithinCanonicalRoot).toHaveBeenCalledWith('/etc/b.ts', '/repo');
+      expect(chunker.chunk).toHaveBeenCalledTimes(1);
+      expect(chunker.chunk).toHaveBeenCalledWith(expect.objectContaining({ path: '/repo/a.ts' }));
+    });
+
+    it('reads against the stored canonical root without resolving it again', async () => {
+      const fileIndexer = mockFileIndexer([inside]);
+      const adapter = new LocalContextAdapter(
+        fileIndexer,
+        mockChunker([makeChunk('c1')]),
+        mockHybridStore(),
+        mockEmbedder(0),
+      );
+      await adapter.indexDirectory('/repo');
+      // If the directory is later replaced by a symlink, resolving it again
+      // would move the boundary. The adapter must keep using '/repo'.
+      vi.mocked(fileIndexer.resolveRoot).mockResolvedValue('/other');
+      vi.mocked(fileIndexer.resolveRoot).mockClear();
+      vi.mocked(fileIndexer.readFileWithinCanonicalRoot).mockClear();
+
+      await adapter.indexFiles(['/repo/a.ts']);
+
+      expect(fileIndexer.resolveRoot).not.toHaveBeenCalled();
+      expect(fileIndexer.readFile).not.toHaveBeenCalled();
+      expect(fileIndexer.readFileWithinCanonicalRoot).toHaveBeenCalledWith('/repo/a.ts', '/repo');
+    });
+
+    it('clearIndex forgets the indexed roots', async () => {
+      const fileIndexer = mockFileIndexer([inside]);
+      const chunker = mockChunker([makeChunk('c1')]);
+      const adapter = new LocalContextAdapter(fileIndexer, chunker, mockHybridStore(), mockEmbedder(0));
+      await adapter.indexDirectory('/repo');
+      await adapter.clearIndex();
+      vi.mocked(chunker.chunk).mockClear();
+
+      await adapter.indexFiles(['/repo/a.ts']);
+
+      expect(chunker.chunk).not.toHaveBeenCalled();
+    });
+
+    it('indexFiles and removeFiles use canonical paths, so aliases hit the stored key', async () => {
+      const fileIndexer = mockFileIndexer([inside]);
+      vi.mocked(fileIndexer.canonicalPath).mockImplementation(async (p: string) =>
+        p.replace(/^\/link\//, '/repo/'),
+      );
+      const store = mockHybridStore();
+      const chunker = mockChunker([makeChunk('c1')]);
+      const adapter = new LocalContextAdapter(fileIndexer, chunker, store, mockEmbedder(0));
+      await adapter.indexDirectory('/repo');
+      vi.mocked(store.removeByFilePath).mockClear();
+      vi.mocked(chunker.chunk).mockClear();
+
+      await adapter.indexFiles(['/link/a.ts', '/repo/a.ts']);
+      expect(store.removeByFilePath).toHaveBeenCalledTimes(1);
+      expect(store.removeByFilePath).toHaveBeenCalledWith('/repo/a.ts');
+      expect(chunker.chunk).toHaveBeenCalledTimes(1);
+
+      vi.mocked(store.removeByFilePath).mockClear();
+      await adapter.removeFiles(['/link/a.ts']);
+      expect(store.removeByFilePath).toHaveBeenCalledWith('/repo/a.ts');
+    });
+
+    it('indexDirectory returns zero counts when the root cannot be resolved', async () => {
+      const fileIndexer = mockFileIndexer([inside]);
+      vi.mocked(fileIndexer.resolveRoot).mockRejectedValue(new Error('ENOENT'));
+      const adapter = new LocalContextAdapter(
+        fileIndexer,
+        mockChunker([makeChunk('c1')]),
+        mockHybridStore(),
+        mockEmbedder(0),
+      );
+
+      expect(await adapter.indexDirectory('/missing')).toEqual({ indexedFiles: 0, chunks: 0 });
+      expect(fileIndexer.walkDirectory).not.toHaveBeenCalled();
+    });
+  });
+
   describe('indexDirectory', () => {
     it('walks directory, chunks files, and calls addBatch', async () => {
       const chunk = makeChunk('c1');
