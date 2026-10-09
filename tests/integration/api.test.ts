@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi, type MockInstance } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import { mkdtemp, mkdir, realpath, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createApiServer } from '../../src/api/server.js';
 import { MockContextEngine } from '../fixtures/mockContextEngine.js';
 import { MockInferenceBackend } from '../fixtures/mockInferenceBackend.js';
@@ -184,22 +187,134 @@ describe('REST API Integration', () => {
   // ── POST /index ────────────────────────────────────────────────────────────
 
   describe('POST /index', () => {
+    // Real directories: the route canonicalises the requested path and the
+    // allowed roots with realpath() before deciding.
+    let base: string;
+    let repo: string;
+    let outside: string;
+    let indexApp: FastifyInstance;
+    let indexSpy: MockInstance<MockContextEngine['indexDirectory']>;
+    const indexedDirs = (): string[] => indexSpy.mock.calls.map((call) => call[0]);
+
+    beforeAll(async () => {
+      base = await realpath(await mkdtemp(join(tmpdir(), 'holocron-api-')));
+      repo = join(base, 'repo');
+      outside = join(base, 'outside');
+      await mkdir(join(repo, 'src'), { recursive: true });
+      await mkdir(outside);
+    });
+
+    afterAll(async () => {
+      await rm(base, { recursive: true, force: true });
+    });
+
+    beforeEach(async () => {
+      indexSpy = vi.spyOn(engine, 'indexDirectory');
+      indexApp = createApiServer({ contextEngine: engine, allowedRoots: [repo] });
+      await indexApp.ready();
+    });
+
+    afterEach(async () => {
+      await indexApp.close();
+    });
+
     it('200 with indexed file count on success', async () => {
       engine.indexResult = { indexedFiles: 15, chunks: 75 };
-      const res = await app.inject({
+      const res = await indexApp.inject({
         method: 'POST',
         url: '/index',
-        payload: { directory: '/my/repo' },
+        payload: { directory: repo },
       });
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.indexedFiles).toBe(15);
       expect(body.chunks).toBe(75);
-      expect(body.directory).toBe('/my/repo');
+      expect(body.directory).toBe(repo);
+      expect(indexedDirs()).toEqual([repo]);
+    });
+
+    it('200 for a subdirectory of an allowed root', async () => {
+      const res = await indexApp.inject({
+        method: 'POST',
+        url: '/index',
+        payload: { directory: join(repo, 'src') },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(indexedDirs()).toEqual([join(repo, 'src')]);
+    });
+
+    it('403 for a directory outside every allowed root', async () => {
+      const res = await indexApp.inject({
+        method: 'POST',
+        url: '/index',
+        payload: { directory: outside },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(indexedDirs()).toEqual([]);
+    });
+
+    it('403 for ../ traversal out of an allowed root', async () => {
+      const res = await indexApp.inject({
+        method: 'POST',
+        url: '/index',
+        payload: { directory: join(repo, '..', 'outside') },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(indexedDirs()).toEqual([]);
+    });
+
+    it('403 for a sibling whose name only shares the root prefix', async () => {
+      await mkdir(`${repo}-other`, { recursive: true });
+      const res = await indexApp.inject({
+        method: 'POST',
+        url: '/index',
+        payload: { directory: `${repo}-other` },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(indexedDirs()).toEqual([]);
+    });
+
+    it.skipIf(process.platform === 'win32')(
+      '403 for a symlink inside an allowed root that points outside it',
+      async () => {
+        await symlink(outside, join(repo, 'escape'));
+        const res = await indexApp.inject({
+          method: 'POST',
+          url: '/index',
+          payload: { directory: join(repo, 'escape') },
+        });
+        expect(res.statusCode).toBe(403);
+        expect(indexedDirs()).toEqual([]);
+      },
+    );
+
+    it('403 for a directory that does not exist', async () => {
+      const res = await indexApp.inject({
+        method: 'POST',
+        url: '/index',
+        payload: { directory: join(repo, 'missing') },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(indexedDirs()).toEqual([]);
+    });
+
+    it('defaults the allowed root to the working directory', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/index',
+        payload: { directory: outside },
+      });
+      expect(res.statusCode).toBe(403);
+      const ok = await app.inject({
+        method: 'POST',
+        url: '/index',
+        payload: { directory: process.cwd() },
+      });
+      expect(ok.statusCode).toBe(200);
     });
 
     it('400 when directory is missing', async () => {
-      const res = await app.inject({
+      const res = await indexApp.inject({
         method: 'POST',
         url: '/index',
         payload: {},
@@ -209,10 +324,10 @@ describe('REST API Integration', () => {
 
     it('500 when engine throws', async () => {
       engine.shouldThrow = true;
-      const res = await app.inject({
+      const res = await indexApp.inject({
         method: 'POST',
         url: '/index',
-        payload: { directory: '/bad/path' },
+        payload: { directory: repo },
       });
       expect(res.statusCode).toBe(500);
     });
