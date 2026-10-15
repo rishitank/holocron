@@ -190,6 +190,8 @@ holocron serve --port 3666
 { "directory": "/path/to/repo" }
 ```
 
+The directory must exist and sit inside an allowed root. By default that is the directory `holocron serve` was started in; pass `--allow-root` to name others (`holocron serve --allow-root ~/code/app ~/code/lib`). Anything else, including `..` traversal and symlinks that lead outside a root, gets `403`. The API has no authentication, so this keeps a request from indexing, and then searching, arbitrary files on the machine.
+
 ---
 
 ## Configuration

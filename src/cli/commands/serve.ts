@@ -10,11 +10,19 @@ export function registerServeCommand(program: Command): void {
     .description('Start the REST API server')
     .option('--port <n>', 'Port to listen on', '3666')
     .option('--host <h>', 'Host to bind to', '127.0.0.1')
-    .action(async (opts: { port: string; host: string }) => {
+    .option(
+      '--allow-root <dirs...>',
+      'Directories POST /index may index (default: the current directory)',
+    )
+    .action(async (opts: { port: string; host: string; allowRoot?: string[] }) => {
       const config = loadConfig();
       const engine = await createContextEngine(config.context);
       const backend = createBackend(config.backend);
-      const app = createApiServer({ contextEngine: engine, inferenceBackend: backend });
+      const app = createApiServer({
+        contextEngine: engine,
+        inferenceBackend: backend,
+        allowedRoots: opts.allowRoot ?? [process.cwd()],
+      });
 
       const port = parseInt(opts.port, 10);
       const host = opts.host;

@@ -2,6 +2,7 @@ import type { AnthropicConfig } from '../types/config.types.js';
 import type { InferenceRequest, InferenceResponse, InferenceChunk } from '../types/inference.types.js';
 import type { InferenceBackend } from './inferenceBackend.js';
 import { BackendError } from '../errors/backend.js';
+import { trimTrailingSlashes } from './baseUrl.js';
 
 export class AnthropicBackend implements InferenceBackend {
   private readonly baseUrl: string;
@@ -12,7 +13,7 @@ export class AnthropicBackend implements InferenceBackend {
 
   constructor(config: AnthropicConfig) {
     const envBaseUrl = process.env['ANTHROPIC_BASE_URL'];
-    this.baseUrl = (envBaseUrl ?? config.baseUrl ?? 'https://api.anthropic.com').replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(envBaseUrl ?? config.baseUrl ?? 'https://api.anthropic.com');
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.temperature = config.temperature;

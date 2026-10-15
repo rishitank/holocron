@@ -9,6 +9,11 @@ import { registerIndexDirRoute } from './routes/indexDir.js';
 export interface ApiServerDeps {
   contextEngine: ContextEngine;
   inferenceBackend?: InferenceBackend;
+  /**
+   * Directories POST /index may index (each one and everything under it).
+   * Defaults to the current working directory.
+   */
+  allowedRoots?: readonly string[];
 }
 
 /**
@@ -21,7 +26,7 @@ export function createApiServer(deps: ApiServerDeps): FastifyInstance {
   registerSearchRoute(app, deps.contextEngine);
   registerEnhanceRoute(app, deps.contextEngine);
   registerAskRoute(app, deps.contextEngine, deps.inferenceBackend);
-  registerIndexDirRoute(app, deps.contextEngine);
+  registerIndexDirRoute(app, deps.contextEngine, deps.allowedRoots ?? [process.cwd()]);
 
   return app;
 }
