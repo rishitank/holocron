@@ -15,4 +15,4 @@ permissions:
 
 jobs:
   actionlint:
-    uses: rishitank/.github/.github/workflows/workflows-lint.yml@5c644123ed93759cf78aa32d9d119150910e113e # v1
+    uses: rishitank/.github/.github/workflows/workflows-lint.yml@5d5a5b8b43d7a62a85ee369502651f4fa97ac922 # v1
