@@ -4,7 +4,7 @@
   "description": "Local codebase intelligence for Claude Code. Your personal holocron.",
   "type": "module",
   "engines": {
-    "node": ">=25.0.0"
+    "node": ">=25.9.0"
   },
   "bin": {
     "holocron": "dist/cli/index.js"
@@ -39,15 +39,15 @@
     "benchmark": "tsx tests/benchmark/runner.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "commander": "^15.0.0",
     "fastify": "^5.0.0",
     "simple-git": "^4.0.2",
-    "sqlite-vec": "^0.1.0",
-    "zod": "^4.6.5"
+    "sqlite-vec": "^0.1.9",
+    "zod": "^4.6.7"
   },
   "optionalDependencies": {
-    "@huggingface/transformers": "^4.3.1"
+    "@huggingface/transformers": "^4.3.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -63,7 +63,7 @@
   },
   "overrides": {
     "tsup": {
-      "esbuild": "^0.28.1"
+      "esbuild": "^0.28.2"
     }
   }
 }
